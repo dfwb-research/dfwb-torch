@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import shutil
 import subprocess
 import sys
@@ -16,6 +17,7 @@ TEMPLATE_DIR = REPO_ROOT / "template"
 
 _NAME = "chk-fixture"
 _MODULE = "dfwb_torch_chk_fixture"
+_CLASS = "ChkFixture"  # scripts/new_package.py's _class_name("chk-fixture")
 
 
 def _baseline(tmp_path: Path) -> Path:
@@ -238,3 +240,62 @@ def test_missing_pyproject_reports_one_problem_set(tmp_path: Path, bad_name: str
     result = _check(pkg_dir)
     assert result.returncode == 1
     assert "pyproject.toml" in result.stdout
+
+
+# --- dynamic check: importing dfwb_plugin must not need torch/dfwb --------
+
+
+def _fake_torch_pythonpath(tmp_path: Path) -> str | None:
+    """A directory holding a stub, importable `torch` module, or `None` if
+    the real thing is already importable here.
+
+    check_package.py's dynamic check blocks `torch`/`dfwb` itself (via its
+    own meta-path finder), so this stub is not needed for the check to work.
+    It exists so the "pulls in torch" test below is a genuine test of that
+    deliberate block, rather than an accidental pass caused by torch simply
+    not being installed in whatever environment runs this test (the
+    `scripts` dependency group does not itself declare torch).
+    """
+    try:
+        import torch  # noqa: F401
+    except ImportError:
+        pass
+    else:
+        return None
+
+    stub_dir = tmp_path / "torch_stub"
+    stub_dir.mkdir()
+    (stub_dir / "torch.py").write_text(
+        "class Tensor:\n    pass\n\n\nclass Module:\n    pass\n\n\nclass nn:\n    Module = Module\n"
+    )
+    return str(stub_dir)
+
+
+def test_flags_eager_torch_import_via_package_init(tmp_path: Path) -> None:
+    """A regression of the lazy `__getattr__` pattern in `__init__.py.tmpl`
+    (an eager top-level import of `modules`, which needs torch) must be
+    caught, even though `dfwb_plugin.py` itself never imports torch and so
+    passes the static AST check unchanged."""
+    pkg_dir = _baseline(tmp_path)
+    (pkg_dir / "src" / _MODULE / "__init__.py").write_text(
+        '"""A fixture."""\n\n'
+        f"from {_MODULE}.modules import {_CLASS}\n\n"
+        '__version__ = "0.1.0"\n\n'
+        f'__all__ = ["{_CLASS}", "__version__"]\n'
+    )
+
+    env = dict(os.environ)
+    stub_path = _fake_torch_pythonpath(tmp_path)
+    if stub_path is not None:
+        existing = env.get("PYTHONPATH")
+        env["PYTHONPATH"] = stub_path if not existing else f"{stub_path}{os.pathsep}{existing}"
+
+    result = subprocess.run(
+        [sys.executable, str(CHECK_PACKAGE), str(pkg_dir)],
+        capture_output=True,
+        text=True,
+        env=env,
+    )
+    assert result.returncode == 1
+    assert "dfwb_plugin.py" in result.stdout
+    assert "importing dfwb_plugin pulls in torch" in result.stdout

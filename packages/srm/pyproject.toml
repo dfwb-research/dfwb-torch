@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "dfwb-torch-srm"
 dynamic = ["version"]
-description = "SRM and high-pass residual filters"
+description = "SRM / high-pass residual filter bank for PyTorch (Fridrich & Kodovský 2012)"
 readme = "README.md"
 requires-python = ">=3.12"
 license = "MIT"

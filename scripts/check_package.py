@@ -6,7 +6,10 @@ Usage: check_package.py PATH...
 
 import argparse
 import ast
+import os
 import re
+import subprocess
+import sys
 import tomllib
 from pathlib import Path
 
@@ -169,6 +172,87 @@ def _check_plugin_no_top_level_torch(pkg_dir: Path, module: str) -> list[str]:
     return problems
 
 
+_BLOCKED_IMPORT_SCRIPT = """\
+import sys
+import importlib.abc
+
+
+class _Blocked(importlib.abc.MetaPathFinder):
+    def find_spec(self, name, path, target=None):
+        for blocked in ("torch", "dfwb"):
+            if name == blocked or name.startswith(blocked + "."):
+                raise ImportError(f"blocked: {{name}}")
+        return None
+
+
+sys.meta_path.insert(0, _Blocked())
+
+import {module}.dfwb_plugin as plugin
+
+
+class _Registry:
+    def __init__(self):
+        self.added = []
+
+    def add(self, key, **kwargs):
+        self.added.append((key, kwargs))
+
+
+class _Api:
+    def __init__(self):
+        self.layers = _Registry()
+
+
+api = _Api()
+plugin.register(api)
+print("OK")
+"""
+
+
+def _check_plugin_imports_without_torch(pkg_dir: Path, module: str) -> list[str]:
+    """T5 (dynamic): importing `<module>.dfwb_plugin` -- what the framework's
+    plugin discovery actually does -- must not need torch or dfwb, even
+    transitively through the package's own `__init__.py`. Python always runs
+    a package's `__init__.py` before importing any of its submodules, so an
+    eager import there (of a torch- or dfwb-needing submodule) would defeat
+    `dfwb_plugin.py`'s own promise not to need torch at module level, even
+    though the static AST check above (`_check_plugin_no_top_level_torch`)
+    finds nothing wrong with `dfwb_plugin.py` itself.
+
+    Runs the import in a subprocess with a meta-path finder that raises on
+    any `torch`/`dfwb` import, so the check is independent of whether torch
+    or dfwb actually happen to be installed in the environment running this
+    script.
+    """
+    plugin_path = pkg_dir / "src" / module / "dfwb_plugin.py"
+    if not plugin_path.is_file():
+        return []
+    rel = plugin_path.relative_to(pkg_dir)
+
+    src_dir = pkg_dir / "src"
+    env = dict(os.environ)
+    existing = env.get("PYTHONPATH")
+    env["PYTHONPATH"] = str(src_dir) if not existing else f"{src_dir}{os.pathsep}{existing}"
+    # Deterministic, uncoloured tracebacks regardless of the parent
+    # environment (Python >=3.13 colourises tracebacks based on these).
+    env["PYTHON_COLORS"] = "0"
+    env["NO_COLOR"] = "1"
+    env.pop("FORCE_COLOR", None)
+
+    result = subprocess.run(
+        [sys.executable, "-c", _BLOCKED_IMPORT_SCRIPT.format(module=module)],
+        capture_output=True,
+        text=True,
+        env=env,
+        check=False,
+    )
+    if result.returncode != 0:
+        lines = (result.stderr or result.stdout).strip().splitlines()
+        message = lines[-1] if lines else f"exit code {result.returncode}"
+        return [f"{rel}: importing dfwb_plugin pulls in torch ({message})"]
+    return []
+
+
 def _check_version_defined(pkg_dir: Path, module: str) -> list[str]:
     init_path = pkg_dir / "src" / module / "__init__.py"
     if not init_path.is_file():
@@ -201,6 +285,7 @@ def check_package(pkg_dir: Path) -> list[str]:
     problems.extend(_check_no_dfwb_imports(pkg_dir))
     problems.extend(_check_plugin_no_top_level_torch(pkg_dir, module))
     problems.extend(_check_version_defined(pkg_dir, module))
+    problems.extend(_check_plugin_imports_without_torch(pkg_dir, module))
     return problems
 
 
