@@ -44,3 +44,7 @@ files = ["src"]
 addopts = "-ra --strict-markers --doctest-modules"
 markers = ["gpu: needs CUDA (local only)"]
 testpaths = ["tests", "src"]
+
+[tool.coverage.run]
+source = ["dfwb_torch_$module"]
+branch = true
