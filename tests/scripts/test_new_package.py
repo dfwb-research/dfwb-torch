@@ -127,3 +127,30 @@ def test_refuses_non_kebab_name(tmp_path: Path, bad_name: str) -> None:
     result = _render(root, bad_name)
     assert result.returncode != 0
     assert not (root / "packages" / bad_name).exists()
+
+
+@pytest.mark.parametrize(
+    "bad_summary",
+    [
+        'has a "quote" in it',
+        "has a backslash \\ in it",
+        "line one\nline two",
+        "",
+        "x" * 101,
+        "has a `backtick` in it",
+    ],
+    ids=["quote", "backslash", "newline", "empty", "too-long", "backtick"],
+)
+def test_refuses_unsafe_summary(tmp_path: Path, bad_summary: str) -> None:
+    root = _make_root(tmp_path)
+    result = _render(root, "my-thing", bad_summary)
+    assert result.returncode == 1
+    assert "error: --summary" in result.stderr
+
+
+def test_refuses_unsafe_summary_creates_no_directory(tmp_path: Path) -> None:
+    root = _make_root(tmp_path)
+    result = _render(root, "my-thing", 'a "bad" summary')
+    assert result.returncode == 1
+    assert not (root / "packages" / "my-thing").exists()
+    assert list((root / "packages").iterdir()) == []

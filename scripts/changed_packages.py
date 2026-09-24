@@ -10,6 +10,7 @@ every package under packages/ is reported touched.
 import argparse
 import json
 import subprocess
+import sys
 from pathlib import Path
 
 _GLOBAL_TRIGGER_FILES = {"pyproject.toml", "uv.lock"}
@@ -27,10 +28,13 @@ def _changed_files(base: str, root: Path) -> list[str]:
     result = subprocess.run(
         ["git", "diff", "--name-only", base, "HEAD"],
         cwd=root,
-        check=True,
         capture_output=True,
         text=True,
     )
+    if result.returncode != 0:
+        stderr = result.stderr.strip()
+        first_line = stderr.splitlines()[0] if stderr else f"git exited {result.returncode}"
+        raise ValueError(f"cannot diff against {base}: {first_line}")
     return [line for line in result.stdout.splitlines() if line]
 
 
@@ -73,7 +77,12 @@ def main(argv: list[str] | None = None) -> int:
     )
     args = parser.parse_args(argv)
 
-    names = changed_packages(args.base, args.root, all_packages=args.all)
+    try:
+        names = changed_packages(args.base, args.root, all_packages=args.all)
+    except ValueError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+
     print(json.dumps(names))
     return 0
 

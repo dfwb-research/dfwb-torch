@@ -12,6 +12,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 _KEBAB_RE = re.compile(r"^[a-z][a-z0-9]*(-[a-z0-9]+)*$")
+_MAX_SUMMARY_LENGTH = 100
+_FORBIDDEN_SUMMARY_CHARS = ('"', "\\", "`")
 
 
 def _validate_name(name: str) -> None:
@@ -20,6 +22,20 @@ def _validate_name(name: str) -> None:
             f"{name!r} is not a valid package name: use lower-kebab-case "
             "(lowercase letters, digits and single hyphens, starting with a letter)"
         )
+
+
+def _validate_summary(summary: str) -> None:
+    if not summary:
+        raise ValueError("--summary must not be empty")
+    if "\n" in summary or "\r" in summary:
+        raise ValueError("--summary must be a single line")
+    if len(summary) > _MAX_SUMMARY_LENGTH:
+        raise ValueError(
+            f"--summary must be at most {_MAX_SUMMARY_LENGTH} characters (got {len(summary)})"
+        )
+    for ch in _FORBIDDEN_SUMMARY_CHARS:
+        if ch in summary:
+            raise ValueError(f"--summary must not contain {ch!r}")
 
 
 def _module_name(name: str) -> str:
@@ -43,10 +59,13 @@ def render_package(name: str, summary: str, root: Path, *, year: str | None = No
         The created files, as paths relative to ``root``, sorted.
 
     Raises:
-        ValueError: ``name`` is not lower-kebab-case, there is no ``template/``
+        ValueError: ``name`` is not lower-kebab-case, ``summary`` is unsafe to
+            substitute (empty, multi-line, too long, or containing a double
+            quote, a backslash or a backtick), there is no ``template/``
             directory under ``root``, or ``packages/<name>`` already exists.
     """
     _validate_name(name)
+    _validate_summary(summary)
 
     template_dir = root / "template"
     if not template_dir.is_dir():

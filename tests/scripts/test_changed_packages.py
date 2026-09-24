@@ -144,3 +144,14 @@ def test_all_flag_reports_every_package_regardless_of_diff(tmp_path: Path) -> No
     result = _run(root, "--base", base, "--all")
     assert result.returncode == 0, result.stderr
     assert json.loads(result.stdout) == ["pkg-a", "pkg-b"]
+
+
+def test_bad_base_ref_prints_clean_error_and_exits_2(tmp_path: Path) -> None:
+    root = tmp_path / "repo"
+    _init_repo(root)
+
+    result = _run(root, "--base", "not-a-real-ref")
+    assert result.returncode == 2
+    assert result.stdout == ""
+    assert result.stderr.startswith("error: cannot diff against not-a-real-ref:")
+    assert "Traceback" not in result.stderr
