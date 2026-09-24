@@ -19,26 +19,6 @@ _KERNEL_SIZE = 5
 _SAME_PAD = (_KERNEL_SIZE - 1) // 2  # 2 on every side, for stride-1 "same" output
 
 
-def identity(x: torch.Tensor) -> torch.Tensor:
-    """Return x unchanged.
-
-    Kept only for `dfwb_torch_srm.modules.Srm`, the template's placeholder
-    module, until Task 5 replaces it with `SRMConv2d`.
-
-    Args:
-        x: Input tensor of any shape.
-
-    Returns:
-        The same tensor, unchanged.
-
-    Example:
-        >>> import torch
-        >>> identity(torch.arange(3)).tolist()
-        [0, 1, 2]
-    """
-    return x
-
-
 # ITU-R BT.601 luma weights for R, G, B (as given in the package plan,
 # dfwb-torch-srm.md, and the M6 task brief): Y = 0.299 R + 0.587 G + 0.114 B.
 _LUMA_WEIGHTS = (0.299, 0.587, 0.114)
@@ -135,6 +115,7 @@ def srm_conv2d(
     input_scale: Literal["0-1", "0-255"] = "0-1",
     padding: Literal["same", "valid"] = "same",
     padding_mode: Literal["reflect", "zeros", "replicate"] = "reflect",
+    _weight: torch.Tensor | None = None,
 ) -> torch.Tensor:
     """Convolve a batched image with an SRM/high-pass kernel bank, then truncate.
 
@@ -179,6 +160,13 @@ def srm_conv2d(
             ``"valid"`` (no padding; ``H, W`` shrink by 4).
         padding_mode: ``"reflect"``, ``"zeros"`` or ``"replicate"``, used
             only when ``padding="same"``.
+        _weight: Module-internal only, not part of the public API: a
+            ``[K, 5, 5]`` kernel tensor to use in place of resolving
+            ``bank`` via `srm_kernels`. `dfwb_torch_srm.modules.SRMConv2d`
+            passes its current (fixed or trainable) weight through here so
+            its forward pass shares this exact function; ``bank`` is
+            ignored when this is given. It is cast to ``x``'s dtype and
+            device like the resolved bank would be.
 
     Returns:
         The filtered, truncated output. Its channel count depends on
@@ -200,7 +188,10 @@ def srm_conv2d(
         raise ValueError(f"srm_conv2d expects a [B, C, H, W] tensor; got shape {tuple(x.shape)}")
     _, _, height, width = x.shape
 
-    kernels = srm_kernels(bank, dtype=x.dtype, device=x.device)  # [K, 5, 5]
+    if _weight is not None:
+        kernels = _weight.to(dtype=x.dtype, device=x.device)  # [K, 5, 5]
+    else:
+        kernels = srm_kernels(bank, dtype=x.dtype, device=x.device)  # [K, 5, 5]
 
     plane = _luminance(x) if mode == "gray" else x
     weight, groups = _mode_weight(kernels, mode, plane.shape[1])
