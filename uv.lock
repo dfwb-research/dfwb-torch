@@ -3,8 +3,8 @@ revision = 3
 requires-python = ">=3.12"
 resolution-markers = [
     "python_full_version >= '3.15' and sys_platform != 'darwin'",
-    "python_full_version < '3.15' and sys_platform != 'darwin'",
     "python_full_version >= '3.15' and sys_platform == 'darwin'",
+    "python_full_version < '3.15' and sys_platform != 'darwin'",
     "python_full_version < '3.15' and sys_platform == 'darwin'",
 ]
 
@@ -216,6 +216,7 @@ dev = [
     { name = "numpy" },
     { name = "pytest" },
     { name = "pytest-cov" },
+    { name = "ruff" },
     { name = "scipy" },
 ]
 
@@ -229,6 +230,7 @@ dev = [
     { name = "numpy" },
     { name = "pytest", specifier = ">=8" },
     { name = "pytest-cov" },
+    { name = "ruff" },
     { name = "scipy" },
 ]
 

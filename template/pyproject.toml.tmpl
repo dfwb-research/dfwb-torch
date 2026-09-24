@@ -33,11 +33,12 @@ Issues = "https://github.com/dfwb-research/dfwb-torch/issues?q=label%3A$name"
 path = "src/dfwb_torch_$module/__init__.py"
 
 [dependency-groups]
-dev = ["pytest>=8", "pytest-cov", "hypothesis", "numpy", "scipy", "mypy"]
+dev = ["pytest>=8", "pytest-cov", "hypothesis", "numpy", "scipy", "mypy", "ruff"]
 
 [tool.mypy]
 strict = true
 python_version = "3.12"
+files = ["src"]
 
 [tool.pytest.ini_options]
 addopts = "-ra --strict-markers --doctest-modules"
