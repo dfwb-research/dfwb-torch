@@ -1,0 +1,45 @@
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[project]
+name = "dfwb-torch-$name"
+dynamic = ["version"]
+description = "$summary"
+readme = "README.md"
+requires-python = ">=3.12"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "Luke Collins", email = "luke.collins@research.deakin.edu.au" }]
+keywords = ["pytorch", "forensics", "deepfake", "$name", "dfwb"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Typing :: Typed",
+    "Intended Audience :: Science/Research",
+    "Programming Language :: Python :: 3 :: Only",
+    "Operating System :: POSIX :: Linux",
+]
+dependencies = ["torch>=2.4"]
+
+[project.entry-points."dfwb.plugins"]
+$name = "dfwb_torch_$module.dfwb_plugin:register"
+
+[project.urls]
+Homepage = "https://github.com/dfwb-research/dfwb-torch/tree/main/packages/$name"
+Documentation = "https://dfwb-research.github.io/dfwb-torch/$name/"
+Issues = "https://github.com/dfwb-research/dfwb-torch/issues?q=label%3A$name"
+
+[tool.hatch.version]
+path = "src/dfwb_torch_$module/__init__.py"
+
+[dependency-groups]
+dev = ["pytest>=8", "pytest-cov", "hypothesis", "numpy", "scipy", "mypy"]
+
+[tool.mypy]
+strict = true
+python_version = "3.12"
+
+[tool.pytest.ini_options]
+addopts = "-ra --strict-markers --doctest-modules"
+markers = ["gpu: needs CUDA (local only)"]
+testpaths = ["tests", "src"]
