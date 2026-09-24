@@ -1,10 +1,14 @@
 """Device/dtype tests for srm: cpu always; cuda if available; every float
-dtype the brief requires (float32, float64, bfloat16 -- review focus #4,
-pinned to this task).
+dtype the brief requires (float32, float64, bfloat16), plus float16 (review
+focus #4 names "bf16/fp16" together, so it is covered here too, behind a
+capability probe since CPU float16 conv2d support is inconsistent across
+PyTorch builds -- this is exactly why the brief's own required matrix scopes
+to bfloat16 only).
 """
 
 import pytest
 import torch
+import torch.nn.functional as F
 from dfwb_torch_srm.modules import TLU, SRMConv2d
 
 # Tolerances, and why: each case compares a dtype computed natively against
@@ -28,15 +32,33 @@ from dfwb_torch_srm.modules import TLU, SRMConv2d
 #     this bank/shape/seed; atol=0.15 gives ~2x headroom without being loose
 #     enough to hide a real dtype bug (a silent float32 upcast, for example,
 #     would make the bfloat16 output match float32 to ~1e-5, not ~0.0625).
+#   * float16: a 10-bit mantissa, so noticeably more precise than bfloat16.
+#     Empirically, max abs diff against the float64 reference is ~0.0078 for
+#     the same setup; atol=0.02 gives ~2.5x headroom, the same margin policy
+#     as bfloat16's.
 _DTYPES_AND_TOL = [
     (torch.float32, 1e-5),
     (torch.float64, 1e-10),
     (torch.bfloat16, 0.15),
+    (torch.float16, 0.02),
 ]
+
+
+def _skip_if_conv2d_unsupported(dtype: torch.dtype) -> None:
+    """Capability probe: skip (with the reason) if this torch build can't
+    run a `conv2d` in `dtype` on CPU, rather than fail. A tiny 1x1 conv
+    keeps the probe cheap and confined to exactly the capability the test
+    below needs; it is a no-op (never skips) for float32/float64/bfloat16,
+    which are always supported."""
+    try:
+        F.conv2d(torch.zeros(1, 1, 1, 1, dtype=dtype), torch.zeros(1, 1, 1, 1, dtype=dtype))
+    except Exception as error:  # pragma: no cover - depends on the torch build
+        pytest.skip(f"conv2d in {dtype} is unsupported on this torch build (CPU): {error}")
 
 
 @pytest.mark.parametrize(("dtype", "atol"), _DTYPES_AND_TOL)
 def test_device_dtype_follow_input(dtype: torch.dtype, atol: float) -> None:
+    _skip_if_conv2d_unsupported(dtype)
     torch.manual_seed(0)
     layer = SRMConv2d(in_channels=3, bank="rgbn3", mode="sum", truncate=None)
     x64 = torch.randn(2, 3, 9, 9, dtype=torch.float64)
