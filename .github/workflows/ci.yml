@@ -1,0 +1,148 @@
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  schedule:
+    - cron: "17 3 * * 1" # weekly: catches new torch/Python releases even with no code change
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  changes:
+    name: changes
+    runs-on: ubuntu-latest
+    outputs:
+      packages: ${{ steps.changed.outputs.packages }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: List changed packages
+        id: changed
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          BEFORE_SHA: ${{ github.event.before }}
+        run: |
+          set -euo pipefail
+          case "$EVENT_NAME" in
+            schedule|workflow_dispatch)
+              # No meaningful base ref: the whole point is to catch drift with no code change.
+              packages=$(python3 scripts/changed_packages.py --base HEAD --all)
+              ;;
+            pull_request)
+              packages=$(python3 scripts/changed_packages.py --base "$BASE_SHA")
+              ;;
+            *)
+              # push: diff against the pre-push state, when it is a real, fetchable commit
+              # (a new branch or a force-push reports 0000... or an unfetchable SHA: fall
+              # back to treating every package as touched rather than guessing wrong).
+              if [ -n "${BEFORE_SHA:-}" ] && ! [[ "$BEFORE_SHA" =~ ^0+$ ]] \
+                  && git cat-file -e "${BEFORE_SHA}^{commit}" 2>/dev/null; then
+                packages=$(python3 scripts/changed_packages.py --base "$BEFORE_SHA")
+              else
+                packages=$(python3 scripts/changed_packages.py --base HEAD --all)
+              fi
+              ;;
+          esac
+          echo "packages: $packages"
+          echo "packages=$packages" >> "$GITHUB_OUTPUT"
+
+  lint:
+    name: lint (${{ matrix.package }})
+    needs: changes
+    if: needs.changes.outputs.packages != '[]'
+    strategy:
+      fail-fast: false
+      matrix:
+        package: ${{ fromJSON(needs.changes.outputs.packages) }}
+    uses: dfwb-research/.github/.github/workflows/python-lint.yml@v1
+    with:
+      working-directory: packages/${{ matrix.package }}
+
+  test:
+    name: test (${{ matrix.package }})
+    needs: changes
+    if: needs.changes.outputs.packages != '[]'
+    strategy:
+      fail-fast: false
+      matrix:
+        package: ${{ fromJSON(needs.changes.outputs.packages) }}
+    uses: dfwb-research/.github/.github/workflows/python-test.yml@v1
+    with:
+      working-directory: packages/${{ matrix.package }}
+      python-versions: '["3.12", "3.14"]'
+      torch-versions: "[]"
+      coverage-min: 90
+
+  test-floor:
+    name: test-floor (${{ matrix.package }})
+    needs: changes
+    if: needs.changes.outputs.packages != '[]'
+    strategy:
+      fail-fast: false
+      matrix:
+        package: ${{ fromJSON(needs.changes.outputs.packages) }}
+    uses: dfwb-research/.github/.github/workflows/python-test.yml@v1
+    with:
+      working-directory: packages/${{ matrix.package }}
+      python-versions: '["3.12"]' # torch 2.4 has no cp314 wheel
+      torch-versions: '["2.4"]'
+      coverage-min: 90
+
+  conformance:
+    name: conformance (${{ matrix.package }})
+    needs: changes
+    if: needs.changes.outputs.packages != '[]'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        package: ${{ fromJSON(needs.changes.outputs.packages) }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          python-version: "3.12"
+      - name: Sync the locked workspace
+        run: uv sync --locked --all-packages --all-groups
+      - name: Check package conformance
+        env:
+          PACKAGE: ${{ matrix.package }}
+        run: uv run --no-sync python scripts/check_package.py "packages/$PACKAGE"
+
+  ci:
+    name: ci
+    if: always()
+    needs: [changes, lint, test, test-floor, conformance]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Every required job succeeded or was skipped
+        env:
+          RESULTS: ${{ join(needs.*.result, ',') }}
+        run: |
+          set -euo pipefail
+          echo "job results: $RESULTS"
+          bad=0
+          IFS=',' read -ra results <<< "$RESULTS"
+          for result in "${results[@]}"; do
+            case "$result" in
+              success|skipped) ;;
+              *)
+                echo "::error::unexpected job result: $result"
+                bad=1
+                ;;
+            esac
+          done
+          exit "$bad"
