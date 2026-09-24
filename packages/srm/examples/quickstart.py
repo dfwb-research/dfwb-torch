@@ -4,14 +4,14 @@ Run: python examples/quickstart.py
 """
 
 import torch
-from dfwb_torch_srm import Srm
+from dfwb_torch_srm import SRMConv2d
 
 
 def main() -> None:
-    """Run the quickstart example."""
-    module = Srm()
-    x = torch.zeros(1, 3, 8, 8)
-    y = module(x)
+    """Build an SRM layer over the 30-kernel bank and run one image through it."""
+    layer = SRMConv2d(in_channels=3, bank="srm30", mode="gray")
+    x = torch.rand(1, 3, 64, 64)
+    y = layer(x)
     print(f"input {tuple(x.shape)} -> output {tuple(y.shape)}")
 
 

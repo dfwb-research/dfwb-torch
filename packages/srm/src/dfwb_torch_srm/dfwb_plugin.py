@@ -22,6 +22,6 @@ def register(api: Any) -> None:
     api.layers.add(
         "srm",
         target="dfwb_torch_srm.modules:SRMConv2d",
-        summary="SRM and high-pass residual filters",
+        summary="SRM / high-pass residual filter bank (Fridrich & Kodovský 2012)",
         requires=("torch",),
     )
