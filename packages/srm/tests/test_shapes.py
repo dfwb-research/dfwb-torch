@@ -2,8 +2,10 @@
 
 Covers every mode x shape x padding combination (batch 1, an odd/non-square
 image, a 1x1 image with `padding="same"`, and an empty batch), the
-input-scale invariance for truncation, TLU clamping, the two mode-specific
-`ValueError`s, and that `srm_conv2d` never mutates its input.
+input-scale invariance for truncation, TLU clamping, the mode-specific
+`ValueError`s, argument validation (`input_scale`, `padding`,
+`padding_mode`, `truncate`, and `padding="valid"` on a too-small image),
+and that `srm_conv2d` never mutates its input.
 """
 
 import pytest
@@ -44,8 +46,9 @@ def test_shapes_matrix(mode: str, padding: str, shape: tuple[int, int, int, int]
 
     if padding == "valid" and (h < 5 or w < 5):
         # A 5x5 kernel does not fit an image smaller than 5x5 with no
-        # padding; F.conv2d itself raises a clear RuntimeError.
-        with pytest.raises(RuntimeError):
+        # padding; srm_conv2d raises its own clear ValueError rather than
+        # letting F.conv2d fail with an opaque RuntimeError.
+        with pytest.raises(ValueError, match=r"padding='valid'.*H=\d+.*W=\d+"):
             srm_conv2d(x, bank=bank, mode=mode, padding=padding)
         return
 
@@ -102,3 +105,42 @@ def test_no_in_place_on_input() -> None:
     original = x.clone()
     srm_conv2d(x, bank="rgbn3", mode="sum")
     assert torch.equal(x, original)
+
+
+# --- argument validation: invalid options must raise, not be silently
+# --- misinterpreted as one of the valid choices ------------------------------
+
+
+def test_invalid_input_scale_raises() -> None:
+    x = torch.zeros(1, 3, 8, 8)
+    with pytest.raises(ValueError, match=r"input_scale.*'0-1'.*'0-255'"):
+        srm_conv2d(x, bank="square3", mode="sum", input_scale="0-100")  # type: ignore[arg-type]
+
+
+def test_invalid_padding_raises() -> None:
+    x = torch.zeros(1, 3, 8, 8)
+    with pytest.raises(ValueError, match=r"padding.*'same'.*'valid'"):
+        srm_conv2d(x, bank="square3", mode="sum", padding="full")  # type: ignore[arg-type]
+
+
+def test_invalid_padding_mode_raises() -> None:
+    x = torch.zeros(1, 3, 8, 8)
+    with pytest.raises(ValueError, match=r"padding_mode.*'reflect'.*'zeros'.*'replicate'"):
+        srm_conv2d(x, bank="square3", mode="sum", padding_mode="circular")  # type: ignore[arg-type]
+
+
+def test_invalid_truncate_raises() -> None:
+    x = torch.zeros(1, 3, 8, 8)
+    with pytest.raises(ValueError, match=r"truncate.*-1\.0"):
+        srm_conv2d(x, bank="square3", mode="sum", truncate=-1.0)
+
+
+def test_truncate_none_is_still_valid() -> None:
+    x = torch.zeros(1, 3, 8, 8)
+    srm_conv2d(x, bank="square3", mode="sum", truncate=None)  # no raise
+
+
+def test_padding_valid_on_too_small_image_raises_value_error() -> None:
+    x = torch.zeros(1, 3, 4, 4)
+    with pytest.raises(ValueError, match=r"padding='valid'.*H=4.*W=4"):
+        srm_conv2d(x, bank="square3", mode="sum", padding="valid")

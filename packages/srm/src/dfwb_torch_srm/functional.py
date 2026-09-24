@@ -18,6 +18,58 @@ __all__ = ["srm_conv2d", "tlu"]
 _KERNEL_SIZE = 5
 _SAME_PAD = (_KERNEL_SIZE - 1) // 2  # 2 on every side, for stride-1 "same" output
 
+_INPUT_SCALES: tuple[str, ...] = ("0-1", "0-255")
+_PADDINGS: tuple[str, ...] = ("same", "valid")
+_PADDING_MODES: tuple[str, ...] = ("reflect", "zeros", "replicate")
+
+
+def _check_choice(name: str, value: str, allowed: tuple[str, ...]) -> None:
+    """Raise `ValueError` listing ``allowed`` unless ``value`` is one of them."""
+    if value not in allowed:
+        options = ", ".join(repr(option) for option in allowed)
+        raise ValueError(f"{name}={value!r} is not one of {options}")
+
+
+def _check_truncate(truncate: float | None) -> None:
+    """Raise `ValueError` unless ``truncate`` is `None` or non-negative."""
+    if truncate is not None and truncate < 0:
+        raise ValueError(f"truncate must be None or >= 0; got {truncate!r}")
+
+
+def _check_non_negative(name: str, value: float) -> None:
+    """Raise `ValueError` unless ``value`` is non-negative."""
+    if value < 0:
+        raise ValueError(f"{name} must be >= 0; got {value!r}")
+
+
+def _check_srm_conv2d_options(
+    *,
+    input_scale: str,
+    padding: str,
+    padding_mode: str,
+    truncate: float | None,
+) -> None:
+    """Validate the options shared by `srm_conv2d` and `SRMConv2d`.
+
+    Raises `ValueError`, naming the offending option and, for the
+    string-choice options, every value it accepts, instead of letting an
+    invalid option be silently misread as one of the valid choices (or fail
+    later with an unrelated, confusing error from `torch.nn.functional`).
+
+    Args:
+        input_scale: Must be ``"0-1"`` or ``"0-255"``.
+        padding: Must be ``"same"`` or ``"valid"``.
+        padding_mode: Must be ``"reflect"``, ``"zeros"`` or ``"replicate"``.
+        truncate: Must be `None` or non-negative.
+
+    Raises:
+        ValueError: Any argument is not one of its allowed values.
+    """
+    _check_choice("input_scale", input_scale, _INPUT_SCALES)
+    _check_choice("padding", padding, _PADDINGS)
+    _check_choice("padding_mode", padding_mode, _PADDING_MODES)
+    _check_truncate(truncate)
+
 
 # Luma weights for standard-definition R'G'B', from the R'G'B' to Y'CbCr
 # matrix in ITU-R Recommendation BT.601-7 (03/2011): Y = 0.299 R + 0.587 G
@@ -175,7 +227,10 @@ def srm_conv2d(
 
     Raises:
         ValueError: ``mode="gray"`` and ``C != 3``; ``mode="per-channel"``
-            and ``K != C``; or an unrecognised ``mode``.
+            and ``K != C``; an unrecognised ``mode``; ``input_scale``,
+            ``padding`` or ``padding_mode`` not one of their allowed values;
+            ``truncate`` negative; or ``padding="valid"`` on an image
+            smaller than 5x5 (a 5x5 kernel does not fit with no padding).
 
     Example:
         >>> import torch
@@ -185,9 +240,18 @@ def srm_conv2d(
         >>> srm_conv2d(x, bank="square3", mode="sum").abs().max().item()
         0.0
     """
+    _check_srm_conv2d_options(
+        input_scale=input_scale, padding=padding, padding_mode=padding_mode, truncate=truncate
+    )
     if x.ndim != 4:
         raise ValueError(f"srm_conv2d expects a [B, C, H, W] tensor; got shape {tuple(x.shape)}")
     _, _, height, width = x.shape
+    if padding == "valid" and (height < _KERNEL_SIZE or width < _KERNEL_SIZE):
+        raise ValueError(
+            f"srm_conv2d(padding='valid') needs an image at least {_KERNEL_SIZE}x{_KERNEL_SIZE} "
+            f"(the kernel size), since there is no padding to fit a smaller one; "
+            f"got H={height}, W={width}"
+        )
 
     if _weight is not None:
         kernels = _weight.to(dtype=x.dtype, device=x.device)  # [K, 5, 5]

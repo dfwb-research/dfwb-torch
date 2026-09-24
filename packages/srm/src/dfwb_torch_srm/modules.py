@@ -12,7 +12,14 @@ import torch
 from torch import nn
 from torch.nn.utils import parametrize
 
-from dfwb_torch_srm.functional import srm_conv2d, tlu
+from dfwb_torch_srm.functional import (
+    _INPUT_SCALES,
+    _check_choice,
+    _check_non_negative,
+    _check_srm_conv2d_options,
+    srm_conv2d,
+    tlu,
+)
 from dfwb_torch_srm.kernels import srm_kernels
 
 __all__ = ["TLU", "SRMConv2d"]
@@ -33,11 +40,18 @@ def _out_channels(mode: str, in_channels: int, num_kernels: int) -> int:
 
     Raises:
         ValueError: ``mode == "per-channel"`` and ``num_kernels != in_channels``,
-            or an unrecognised ``mode``.
+            ``mode == "gray"`` and ``in_channels != 3``, or an unrecognised
+            ``mode``.
     """
     if mode == "depthwise":
         return in_channels * num_kernels
-    if mode in ("sum", "gray"):
+    if mode == "gray":
+        if in_channels != 3:
+            raise ValueError(
+                f"SRMConv2d(mode='gray') needs 3 input channels (R, G, B); got C={in_channels}"
+            )
+        return num_kernels
+    if mode == "sum":
         return num_kernels
     if mode == "per-channel":
         if num_kernels != in_channels:
@@ -157,10 +171,15 @@ class SRMConv2d(nn.Module):
                 only when ``padding="same"``.
 
         Raises:
-            ValueError: ``mode="per-channel"`` and ``K != in_channels``, or
-                an unrecognised ``mode``.
+            ValueError: ``mode="per-channel"`` and ``K != in_channels``;
+                ``mode="gray"`` and ``in_channels != 3``; an unrecognised
+                ``mode``; or ``input_scale``, ``padding``, ``padding_mode``
+                or ``truncate`` not one of their allowed values.
         """
         super().__init__()
+        _check_srm_conv2d_options(
+            input_scale=input_scale, padding=padding, padding_mode=padding_mode, truncate=truncate
+        )
         kernels = srm_kernels(bank)  # default dtype/device; forward casts to the input's
         self.in_channels = in_channels
         self.bank = bank
@@ -232,13 +251,20 @@ class TLU(nn.Module):
         """Build the layer.
 
         Args:
-            threshold: The clamp bound, in 0-255 residual units.
+            threshold: The clamp bound, in 0-255 residual units. Must be
+                non-negative.
             input_scale: ``"0-1"`` (the default) or ``"0-255"``, the scale
                 the input is in. ``"0-1"`` uses an effective threshold of
                 ``threshold / 255``, so the same clamp applies whether the
                 input is scaled to 0-1 or left at 0-255.
+
+        Raises:
+            ValueError: ``input_scale`` is not ``"0-1"`` or ``"0-255"``, or
+                ``threshold`` is negative.
         """
         super().__init__()
+        _check_choice("input_scale", input_scale, _INPUT_SCALES)
+        _check_non_negative("threshold", threshold)
         self.threshold = threshold
         self.input_scale = input_scale
 

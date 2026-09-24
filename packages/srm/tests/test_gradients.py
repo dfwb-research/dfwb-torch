@@ -88,6 +88,51 @@ def test_per_channel_needs_k_equal_c_at_construction() -> None:
         SRMConv2d(in_channels=3, bank="srm30", mode="per-channel")
 
 
+def test_gray_needs_three_channels_at_construction() -> None:
+    """Unlike `mode="per-channel"`'s `K == C` check (which the functional API
+    also can't do ahead of time), `mode="gray"` needs exactly 3 input
+    channels; the module already knows `in_channels` at construction, so it
+    validates this eagerly rather than waiting for the first forward pass
+    (the functional API, which only sees the actual tensor's channel count,
+    still validates this at call time)."""
+    with pytest.raises(ValueError, match=r"gray.*C=4"):
+        SRMConv2d(in_channels=4, bank="srm30", mode="gray")
+
+
+@pytest.mark.parametrize(
+    ("kwargs", "match"),
+    [
+        ({"input_scale": "0-100"}, r"input_scale.*'0-1'.*'0-255'"),
+        ({"padding": "full"}, r"padding.*'same'.*'valid'"),
+        ({"padding_mode": "circular"}, r"padding_mode.*'reflect'.*'zeros'.*'replicate'"),
+        ({"truncate": -1.0}, r"truncate.*-1\.0"),
+    ],
+)
+def test_srmconv2d_invalid_options_raise_at_construction(
+    kwargs: dict[str, object], match: str
+) -> None:
+    """`SRMConv2d` validates its string-choice and numeric options eagerly,
+    the same way `srm_conv2d` does, rather than accepting an invalid option
+    silently and misbehaving (or raising a confusing error) on the first
+    forward pass."""
+    with pytest.raises(ValueError, match=match):
+        SRMConv2d(in_channels=3, **kwargs)  # type: ignore[arg-type]
+
+
+@pytest.mark.parametrize(
+    ("kwargs", "match"),
+    [
+        ({"input_scale": "0-100"}, r"input_scale.*'0-1'.*'0-255'"),
+        ({"threshold": -1.0}, r"threshold.*-1\.0"),
+    ],
+)
+def test_tlu_invalid_options_raise_at_construction(kwargs: dict[str, object], match: str) -> None:
+    base = {"threshold": 3.0, "input_scale": "0-1"}
+    base.update(kwargs)
+    with pytest.raises(ValueError, match=match):
+        TLU(**base)  # type: ignore[arg-type]
+
+
 @pytest.mark.parametrize(
     ("mode", "bank", "in_channels", "expected"),
     [
