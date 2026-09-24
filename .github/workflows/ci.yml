@@ -122,10 +122,32 @@ jobs:
           PACKAGE: ${{ matrix.package }}
         run: uv run --no-sync python scripts/check_package.py "packages/$PACKAGE"
 
+  scripts:
+    name: scripts
+    # Not gated by the changed-packages list: the root scripts (and their
+    # tests) are shared infrastructure for every package, so they run on
+    # every PR/push regardless of which packages changed.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          python-version: "3.12"
+      - name: Sync the locked workspace
+        run: uv sync --locked --all-packages --all-groups
+      - name: pytest
+        run: uv run --no-sync pytest tests
+      - name: ruff check
+        run: uv run --no-sync ruff check scripts tests
+      - name: mypy --strict
+        run: uv run --no-sync mypy --strict scripts
+
   ci:
     name: ci
     if: always()
-    needs: [changes, lint, test, test-floor, conformance]
+    needs: [changes, lint, test, test-floor, conformance, scripts]
     runs-on: ubuntu-latest
     steps:
       - name: Every required job succeeded or was skipped
