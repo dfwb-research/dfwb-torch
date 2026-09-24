@@ -1,0 +1,28 @@
+"""Stateless functional API for dfwb_torch_srm.
+
+Add pure-function forms of your ops here. Every function should document its
+tensor layout, follow the input tensor's device and dtype, and accept batched
+input only (see the package README's Engineering rules).
+"""
+
+import torch
+
+
+def identity(x: torch.Tensor) -> torch.Tensor:
+    """Return x unchanged.
+
+    A placeholder so a freshly rendered package has a working, tested
+    function. Replace this with the real functional API for srm.
+
+    Args:
+        x: Input tensor of any shape.
+
+    Returns:
+        The same tensor, unchanged.
+
+    Example:
+        >>> import torch
+        >>> identity(torch.arange(3)).tolist()
+        [0, 1, 2]
+    """
+    return x
