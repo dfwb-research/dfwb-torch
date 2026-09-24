@@ -31,7 +31,7 @@ def test_register_adds_the_expected_layer() -> None:
     assert len(api.layers.added) == 1
     key, kwargs = api.layers.added[0]
     assert key == "srm"
-    assert kwargs["target"] == "dfwb_torch_srm.modules:Srm"
+    assert kwargs["target"] == "dfwb_torch_srm.modules:SRMConv2d"
     assert kwargs["requires"] == ("torch",)
 
 
