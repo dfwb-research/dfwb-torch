@@ -76,6 +76,12 @@ mode="per-channel"                 C out   (needs K == C)
 - **`mode="per-channel"` needs `K == C`.** It applies kernel `i` to channel `i`, so the bank's
   kernel count `K` must equal `in_channels`. A mismatch raises a `ValueError` naming both `K`
   and `C` at construction time, not later at the first forward pass.
+- **CPU float16 with reflect/replicate padding needs a newer torch.** On torch 2.4.1, CPU
+  `reflection_pad2d` and `replication_pad2d` (used by the default `padding_mode="reflect"`,
+  and by its fallback to `replicate` for tiny inputs) are not implemented for `float16`, so a
+  float16 CPU forward pass raises `RuntimeError: "reflection_pad2d" not implemented for
+  'Half'`. Either use a newer torch, or work around it with `padding_mode="zeros"`, or use
+  `bfloat16` or `float32` instead of `float16` on CPU.
 
 ## Using with Deepfake Workbench
 

@@ -8,7 +8,6 @@ to bfloat16 only).
 
 import pytest
 import torch
-import torch.nn.functional as F
 from dfwb_torch_srm.modules import TLU, SRMConv2d
 
 # Tolerances, and why: each case compares a dtype computed natively against
@@ -45,15 +44,26 @@ _DTYPES_AND_TOL = [
 
 
 def _skip_if_conv2d_unsupported(dtype: torch.dtype) -> None:
-    """Capability probe: skip (with the reason) if this torch build can't
-    run a `conv2d` in `dtype` on CPU, rather than fail. A tiny 1x1 conv
-    keeps the probe cheap and confined to exactly the capability the test
-    below needs; it is a no-op (never skips) for float32/float64/bfloat16,
-    which are always supported."""
+    """Capability probe: skip (with the reason) if this torch build can't run
+    `SRMConv2d`'s actual forward path in `dtype` on CPU, rather than fail.
+
+    A bare `F.conv2d` call is not enough: `SRMConv2d`'s default
+    `padding_mode="reflect"` goes through `reflection_pad2d` (falling back to
+    `replication_pad2d` for tiny inputs), and on CPU, torch 2.4.1 has neither
+    kernel implemented for float16 (`RuntimeError: "reflection_pad2d" not
+    implemented for 'Half'`), even though plain `conv2d` in float16 works
+    fine. The probe below runs the same construction and input shape as the
+    test itself (`SRMConv2d(bank="rgbn3", mode="sum")` over a small image),
+    so it exercises the real failure mode rather than a easier proxy. It is a
+    no-op (never skips) for float32/float64/bfloat16, which are always
+    supported.
+    """
     try:
-        F.conv2d(torch.zeros(1, 1, 1, 1, dtype=dtype), torch.zeros(1, 1, 1, 1, dtype=dtype))
+        SRMConv2d(in_channels=3, bank="rgbn3", mode="sum")(torch.zeros(1, 3, 5, 5, dtype=dtype))
     except Exception as error:  # pragma: no cover - depends on the torch build
-        pytest.skip(f"conv2d in {dtype} is unsupported on this torch build (CPU): {error}")
+        pytest.skip(
+            f"SRMConv2d forward in {dtype} is unsupported on this torch build (CPU): {error}"
+        )
 
 
 @pytest.mark.parametrize(("dtype", "atol"), _DTYPES_AND_TOL)
