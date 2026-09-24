@@ -16,6 +16,8 @@ import pytest
 import torch
 import torch.nn.functional as F
 from _tables import ALL_TABLES, RGBN3_TABLES, SRM30_TABLES, taps_of
+from dfwb_torch_srm._reference import srm_conv2d_reference
+from dfwb_torch_srm.functional import srm_conv2d
 from dfwb_torch_srm.kernels import BANKS, KERNELS, KernelInfo, srm_kernels
 
 _KEBAB = re.compile(r"^[a-z][a-z0-9]*(-[a-z0-9]+)*$")
@@ -214,3 +216,46 @@ def test_each_call_returns_a_fresh_tensor() -> None:
     first = srm_kernels("square3")
     first.zero_()
     assert srm_kernels("square3").abs().sum() > 0
+
+
+# --- srm_conv2d against the numpy/scipy reference ---------------------------
+
+# "per-channel" needs K == C; rgbn3 (3 kernels) matches these C=3 inputs.
+_CONV_MODE_BANK = [
+    ("depthwise", "srm30"),
+    ("sum", "srm30"),
+    ("gray", "srm30"),
+    ("per-channel", "rgbn3"),
+]
+
+
+@pytest.mark.parametrize(("mode", "bank"), _CONV_MODE_BANK)
+@pytest.mark.parametrize(
+    ("padding", "padding_mode"),
+    [
+        ("same", "reflect"),
+        ("same", "zeros"),
+        ("same", "replicate"),
+        ("valid", "reflect"),  # padding_mode is unused when padding="valid"
+    ],
+)
+def test_matches_numpy_reference(mode: str, bank: str, padding: str, padding_mode: str) -> None:
+    generator = torch.Generator().manual_seed(0)
+    x = torch.randn(2, 3, 9, 7, dtype=torch.float64, generator=generator)
+    y_torch = srm_conv2d(x, bank=bank, mode=mode, padding=padding, padding_mode=padding_mode)
+    y_numpy = srm_conv2d_reference(
+        x.numpy(), bank=bank, mode=mode, padding=padding, padding_mode=padding_mode
+    )
+    assert torch.allclose(y_torch, torch.from_numpy(y_numpy), atol=1e-10)
+
+
+def test_matches_numpy_reference_reflect_fallback_below_3() -> None:
+    # H = 2 < 3: "same" + "reflect" must fall back to replicate, and both
+    # implementations must do it the same way.
+    generator = torch.Generator().manual_seed(1)
+    x = torch.randn(1, 3, 2, 4, dtype=torch.float64, generator=generator)
+    y_torch = srm_conv2d(x, bank="square3", mode="sum", padding="same", padding_mode="reflect")
+    y_numpy = srm_conv2d_reference(
+        x.numpy(), bank="square3", mode="sum", padding="same", padding_mode="reflect"
+    )
+    assert torch.allclose(y_torch, torch.from_numpy(y_numpy), atol=1e-10)
