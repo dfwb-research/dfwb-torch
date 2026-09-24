@@ -88,8 +88,8 @@ mode="per-channel"                 C out   (needs K == C)
 `dfwb_torch_srm` optionally self-registers as the framework's `layers/srm` component through
 the `dfwb.plugins` entry point (`register(api)` in `dfwb_plugin.py`), with no dependency the
 other way: this package never imports `dfwb`, and works standalone even if it's never
-installed. Deepfake Workbench's model stem hook (arriving in its own M4 milestone) is intended
-to build the registered layer from a config block, for example:
+installed. A future Deepfake Workbench release's model stem hook is intended to build the
+registered layer from a config block, for example:
 
 ```yaml
 model:

@@ -110,7 +110,7 @@ def test_srm30_order_is_pinned() -> None:
 
 
 def test_srm30_centre_tap_is_minus_one() -> None:
-    # T6: each SRM residual R = Xhat - c X is divided by c, so the centre is -1.
+    # Each SRM residual R = Xhat - c X is divided by c, so the centre is -1.
     for name in BANKS["srm30"]:
         assert KERNELS[name].taps[2][2] == -1.0, name
 

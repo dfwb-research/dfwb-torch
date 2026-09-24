@@ -1,9 +1,9 @@
-"""Device/dtype tests for srm: cpu always; cuda if available; every float
-dtype the brief requires (float32, float64, bfloat16), plus float16 (review
-focus #4 names "bf16/fp16" together, so it is covered here too, behind a
-capability probe since CPU float16 conv2d support is inconsistent across
-PyTorch builds -- this is exactly why the brief's own required matrix scopes
-to bfloat16 only).
+"""Device/dtype tests for srm: cpu always; cuda if available; float32,
+float64 and bfloat16, plus float16 behind a capability probe. CPU float16
+support for conv2d and its padding ops is inconsistent across PyTorch
+builds and versions, so float16 is exercised but allowed to skip with its
+reason when the running build can't do it, rather than being required
+outright the way the other dtypes are.
 """
 
 import pytest

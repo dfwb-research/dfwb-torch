@@ -19,8 +19,9 @@ _KERNEL_SIZE = 5
 _SAME_PAD = (_KERNEL_SIZE - 1) // 2  # 2 on every side, for stride-1 "same" output
 
 
-# ITU-R BT.601 luma weights for R, G, B (as given in the package plan,
-# dfwb-torch-srm.md, and the M6 task brief): Y = 0.299 R + 0.587 G + 0.114 B.
+# Luma weights for standard-definition R'G'B', from the R'G'B' to Y'CbCr
+# matrix in ITU-R Recommendation BT.601-7 (03/2011): Y = 0.299 R + 0.587 G
+# + 0.114 B.
 _LUMA_WEIGHTS = (0.299, 0.587, 0.114)
 
 

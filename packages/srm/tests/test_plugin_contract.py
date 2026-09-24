@@ -2,7 +2,7 @@
 
 Uses a recording mock instead of the real framework, so this test runs
 without dfwb installed (dfwb_plugin.py itself must not import torch or dfwb
-at module level -- 03-contracts.md C1, dfwb-torch.md "Plugin hook").
+at module level).
 
 Also checks, dynamically, that the whole import path the framework's plugin
 discovery takes (`import dfwb_torch_srm.dfwb_plugin`, which Python resolves
@@ -23,8 +23,8 @@ _REPO_ROOT = _PACKAGE_DIR.parent.parent
 
 _SUMMARY = "SRM / high-pass residual filter bank (Fridrich & Kodovský 2012)"
 
-# Every registry on the C1 `PluginAPI` dataclass (03-contracts.md), so the
-# mock supports `.add()` wherever a plugin might call it.
+# Every registry on the framework's `PluginAPI` dataclass, so the mock
+# supports `.add()` wherever a plugin might call it.
 _REGISTRIES = (
     "layers",
     "transforms",
@@ -147,9 +147,9 @@ _BLOCKED_TORCH_SCRIPT = textwrap.dedent(
 def test_dfwb_plugin_imports_and_registers_with_torch_blocked() -> None:
     """The framework loads every installed plugin's `dfwb_plugin` module to
     read its metadata before deciding whether to import the (possibly heavy)
-    target class -- `target` is a "lazy import path" (C1). A meta-path
-    finder that raises on any `torch` import simulates torch not being
-    installed; both the import and `register()` must still succeed.
+    target class -- `target` is a lazy import path. A meta-path finder that
+    raises on any `torch` import simulates torch not being installed; both
+    the import and `register()` must still succeed.
     """
     result = subprocess.run(
         [sys.executable, "-c", _BLOCKED_TORCH_SCRIPT],

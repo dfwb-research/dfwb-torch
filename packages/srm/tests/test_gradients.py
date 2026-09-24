@@ -1,8 +1,8 @@
 """Module construction and gradient tests for `SRMConv2d`: gradcheck
-(float64), buffer/parameter registration, the trainable zero-DC invariant
-(review focus #2, pinned to this task), `out_channels` per mode, and a
-state-dict round trip. Kept to this file, `test_device_dtype.py` and
-`test_compile.py`, per the task brief's file list.
+(float64), buffer/parameter registration, the trainable zero-DC invariant,
+`out_channels` per mode, and a state-dict round trip. Device/dtype and
+torch.compile parity have their own files: `test_device_dtype.py` and
+`test_compile.py`.
 """
 
 import pytest
@@ -43,9 +43,8 @@ def test_fixed_kernels_are_buffers_not_parameters() -> None:
 
 
 def test_trainable_kernels_stay_zero_dc_after_steps() -> None:
-    """Review focus #2 (pinned to this task): after optimiser steps, every
-    kernel must still sum to (numerically) zero, so training can never turn
-    the layer into a low-pass filter.
+    """After optimiser steps, every kernel must still sum to (numerically)
+    zero, so training can never turn the layer into a low-pass filter.
 
     5 SGD steps at an aggressive lr=1.0 push the *raw*, pre-parametrisation
     parameter hard in a random direction (a random, non-degenerate loss).
@@ -81,10 +80,10 @@ def test_trainable_kernels_stay_zero_dc_at_init() -> None:
 
 
 def test_per_channel_needs_k_equal_c_at_construction() -> None:
-    """Review focus #5: unlike the functional API (which only checks at call
-    time, since it doesn't know `in_channels` ahead of time), the module
-    knows both `K` and `in_channels` at construction, so it validates
-    `mode="per-channel"` eagerly and raises a clear `ValueError`."""
+    """Unlike the functional API (which only checks at call time, since it
+    doesn't know `in_channels` ahead of time), the module knows both `K` and
+    `in_channels` at construction, so it validates `mode="per-channel"`
+    eagerly and raises a clear `ValueError`."""
     with pytest.raises(ValueError, match=r"K == C.*K=30.*C=3"):
         SRMConv2d(in_channels=3, bank="srm30", mode="per-channel")
 

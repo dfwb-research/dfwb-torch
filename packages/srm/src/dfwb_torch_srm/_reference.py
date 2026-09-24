@@ -18,8 +18,8 @@ from scipy.signal import correlate2d  # type: ignore[import-untyped]
 
 from dfwb_torch_srm.kernels import srm_kernels
 
-# Kept identical to functional.py's _LUMA_WEIGHTS (ITU-R BT.601, as given in
-# the package plan and the M6 task brief).
+# Kept identical to functional.py's _LUMA_WEIGHTS (ITU-R Recommendation
+# BT.601-7 (03/2011) luma weights: Y = 0.299 R + 0.587 G + 0.114 B).
 _LUMA_WEIGHTS = (0.299, 0.587, 0.114)
 
 

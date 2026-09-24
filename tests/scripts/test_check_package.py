@@ -1,4 +1,4 @@
-"""Tests for scripts/check_package.py (T5 conformance checks)."""
+"""Tests for scripts/check_package.py (package conformance checks)."""
 
 from __future__ import annotations
 

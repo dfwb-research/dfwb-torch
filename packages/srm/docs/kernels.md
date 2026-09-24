@@ -25,7 +25,7 @@ deliberate, reviewed diff.
   - For an EDGE kernel, `-h` is the half above the centre row, as E3a is drawn
     in Fridrich & Kodovský (2012), Fig. 2, and `-v` is the left half.
 
-## Normalisation (decision T6)
+## Normalisation
 
 SRM writes every residual as `R = X̂(N) − c·X`, where `c` is the centre
 coefficient (Fridrich & Kodovský 2012, Sec. II-A, Eq. (1)). Each `srm30`
@@ -137,8 +137,7 @@ where it increases downwards. Both are ablation baselines, not SRM residuals.
    3×3 ÷ 4, SQUARE 5×5 ÷ 12 and second-order ÷ 2. The authors' code uses
    SQUARE 5×5, SQUARE 3×3, second-order (`c[0]`, `c[1]`, `c[2]`). The values
    are the same; only the channel order differs. **Chosen:** the code order,
-   because it is the order a trained RGB-N expects (decision T6 lists the
-   same order).
+   because it is the order a trained RGB-N expects.
 2. **Orientation of RGB-N's second-order kernel.** `resnet_fusion.py` and
    `resnet_fusion_noise.py` (lines 198–201) use the horizontal kernel
    (`c[2][2][1..3] = 1, −2, 1`), and so does the paper's Fig. 4. The
@@ -153,9 +152,9 @@ where it increases downwards. Both are ablation baselines, not SRM residuals.
    eight directions and never calls `Residual(X, 1, …)`, so the content of
    `srm30` is unaffected.
 4. **"Normalised by its quantisation step" versus "divided by the centre
-   coefficient".** The package plan uses the first phrase and decision T6 the
-   second. They mean the same thing, because SRM's finest quantisation step
-   is `q = c` (see [Normalisation](#normalisation-decision-t6)).
+   coefficient".** Both phrases describe this package's kernels: they mean
+   the same thing, because SRM's finest quantisation step is `q = c` (see
+   [Normalisation](#normalisation)).
 5. **Scaling in public CNN code.** YeNet-Pytorch's `SRM_Kernels.npy` stores
    the 30 kernels as unnormalised integers (centre −1, −2, −3, −4 or −12), in
    a different order. `srm30` equals those kernels divided by `c`; the table

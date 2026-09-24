@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Check a rendered dfwb-torch package for template conformance (T5).
+"""Check a rendered dfwb-torch package for template conformance.
 
 Usage: check_package.py PATH...
 """
@@ -210,7 +210,7 @@ print("OK")
 
 
 def _check_plugin_imports_without_torch(pkg_dir: Path, module: str) -> list[str]:
-    """T5 (dynamic): importing `<module>.dfwb_plugin` -- what the framework's
+    """A dynamic check: importing `<module>.dfwb_plugin` -- what the framework's
     plugin discovery actually does -- must not need torch or dfwb, even
     transitively through the package's own `__init__.py`. Python always runs
     a package's `__init__.py` before importing any of its submodules, so an
@@ -275,7 +275,7 @@ def _check_version_defined(pkg_dir: Path, module: str) -> list[str]:
 
 
 def check_package(pkg_dir: Path) -> list[str]:
-    """Return the list of T5 conformance problems for the package at ``pkg_dir``."""
+    """Return the list of conformance problems for the package at ``pkg_dir``."""
     name = pkg_dir.name
     module = _module_name(name)
 

@@ -2,8 +2,7 @@
 
 `SRMConv2d`'s control flow branches only on Python-level config (`mode`,
 `padding`, `padding_mode`, `bool`s) and static shapes, never on tensor
-values, so it is expected to be torch.compile-friendly (dfwb-torch.md's
-engineering rules).
+values, so it is expected to be torch.compile-friendly.
 """
 
 import pytest

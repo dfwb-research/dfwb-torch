@@ -23,7 +23,7 @@ Conventions:
     in Fridrich & Kodovsky 2012 Fig. 2 (SRM.m's ``Du``); ``-v`` is the left
     half (``Dl``). ``docs/kernels.md`` lists every kernel with its SRM.m name.
 
-Normalisation (decision T6):
+Normalisation:
     SRM writes each residual as ``R = Xhat(N) - c * X`` with ``c`` the centre
     coefficient (Fridrich & Kodovsky 2012, Sec. II-A, Eq. (1)). Every
     ``srm30`` kernel is divided by ``c`` (1, 2, 3, 4 or 12), so its centre

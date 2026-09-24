@@ -8,9 +8,9 @@ rather than imported eagerly here. Python always runs a package's
 `functional`, `kernels` or `modules` -- would defeat `dfwb_plugin.py`'s own
 promise not to need torch at module level: the framework's plugin discovery
 loads `dfwb_torch_srm.dfwb_plugin` for every installed plugin before
-deciding whether to import a target class (03-contracts.md C1: `target` is
-a "lazy import path"). `torch` is only imported the first time one of these
-names is actually accessed.
+deciding whether to import a target class, resolving `target` as a lazy
+import path. `torch` is only imported the first time one of these names is
+actually accessed.
 """
 
 from typing import TYPE_CHECKING, Any

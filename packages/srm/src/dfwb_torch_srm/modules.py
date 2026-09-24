@@ -2,7 +2,7 @@
 
 Both modules are thin `nn.Module` wrappers over the stateless functional API
 (`dfwb_torch_srm.functional`); neither adds any global state, and both
-follow the input's device and dtype (dfwb-torch.md's engineering rules).
+follow the input's device and dtype.
 """
 
 from collections.abc import Sequence
@@ -59,7 +59,7 @@ class _ZeroMeanPerKernel(nn.Module):
     ``trainable=True``. `torch.nn.utils.parametrize` recomputes this on
     every access to `.weight` (so on every forward pass and every gradient
     step), not just once at construction, so an optimiser can never drift
-    the kernels' DC gain away from 0 (review focus #2).
+    the kernels' DC gain away from 0.
 
     Example:
         >>> import torch
@@ -96,11 +96,11 @@ class SRMConv2d(nn.Module):
     `torch.nn.utils.parametrize` parametrisation
     (``w - w.mean(dim=(-2, -1), keepdim=True)``), so gradient steps can
     never turn a residual kernel into a low-pass filter: its DC gain stays
-    exactly 0 (review focus #2).
+    exactly 0.
 
     `forward` casts the current weight to the input's dtype and device (so
-    the layer follows the input, with no silent upcast -- review focus #4),
-    then calls `srm_conv2d`.
+    the layer follows the input, with no silent upcast), then calls
+    `srm_conv2d`.
 
     Attributes:
         out_channels: The number of output channels, fixed at construction

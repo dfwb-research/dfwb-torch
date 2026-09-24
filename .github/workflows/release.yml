@@ -1,6 +1,6 @@
 name: release
 
-# Never triggered during M6: only a push of a tag matching <name>-v<X.Y.Z> starts this.
+# Never triggered by the initial scaffold: only a push of a tag matching <name>-v<X.Y.Z> starts this.
 on:
   push:
     tags: ["*-v*"]
