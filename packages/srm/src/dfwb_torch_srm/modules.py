@@ -77,8 +77,9 @@ class _ZeroMeanPerKernel(nn.Module):
 
     Example:
         >>> import torch
-        >>> w = torch.rand(2, 5, 5)
-        >>> _ZeroMeanPerKernel()(w).sum(dim=(-2, -1)).abs().max().item() < 1e-6
+        >>> _ = torch.manual_seed(0)
+        >>> w = torch.rand(2, 5, 5, dtype=torch.float64)
+        >>> _ZeroMeanPerKernel()(w).sum(dim=(-2, -1)).abs().max().item() < 1e-12
         True
     """
 
