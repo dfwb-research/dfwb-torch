@@ -75,6 +75,25 @@ checks a package against it; commit the `uv.lock` that `uv` updates for the new 
 too. A new package needs a concrete user, no well-maintained equivalent, and its API specified
 and reviewed before it lands here.
 
+## Releasing a package
+
+Each package is tagged and released independently, one tag-day PR at a time:
+
+1. Set `__version__` in `packages/<name>/src/dfwb_torch_<name>/__init__.py`.
+2. Set `version` and `date-released` in `packages/<name>/CITATION.cff`.
+3. Rename the package's `CHANGELOG.md` `## [Unreleased]` section to `## [x.y.z] - YYYY-MM-DD`.
+4. Replace the "not on PyPI yet" install text in `packages/<name>/README.md` -- PyPI renders
+   that file as the project description, which cannot change without a new release -- and in
+   this file's `## Packages` table.
+5. Merge the PR, then tag the merge commit `<name>-v<x.y.z>` (e.g. `srm-v0.1.0`) and push the
+   tag.
+6. `release.yml` takes it from there: it checks the tag's version against `__version__` and
+   `CITATION.cff`'s `version` (refusing a mismatch), builds and publishes to PyPI through
+   trusted publishing, and creates a GitHub release linking to the package's changelog -- marked
+   a prerelease for an alpha/beta/rc/dev version, and never flipping this repository's "Latest
+   release" marker (packages are versioned independently, so no single release is *the* latest
+   for all of them). Approve the `pypi` environment when GitHub prompts for it.
+
 ## The DFWB repositories
 
 Three repositories make up [DFWB Research](https://github.com/dfwb-research); the organisation
