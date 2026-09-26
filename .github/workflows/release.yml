@@ -38,10 +38,13 @@ jobs:
           version="${BASH_REMATCH[2]}"
           echo "package=$name" >> "$GITHUB_OUTPUT"
           echo "version=$version" >> "$GITHUB_OUTPUT"
-          # PEP 440 pre-release segment (alpha "a", beta "b" or release
-          # candidate "rc"), e.g. "0.1.0rc1": a GitHub prerelease, not a
-          # full release.
-          if [[ "$version" =~ ^[0-9]+(\.[0-9]+)*(a|b|rc)[0-9]+$ ]]; then
+          # PEP 440 pre-release (alpha "aN", beta "bN", release candidate
+          # "rcN") or developmental release (".devN", on its own or
+          # combined with a pre-release segment, e.g. "0.2.0rc1.dev2"):
+          # both are pre-releases (PEP 440), so tag a GitHub prerelease, not
+          # a full release. A post-release on its own ("1.2.3.post1") is
+          # not a pre-release and stays final.
+          if [[ "$version" =~ (a|b|rc)[0-9]+ ]] || [[ "$version" =~ \.dev[0-9]+ ]]; then
             echo "prerelease=true" >> "$GITHUB_OUTPUT"
           else
             echo "prerelease=false" >> "$GITHUB_OUTPUT"
@@ -60,6 +63,9 @@ jobs:
           fi
           # Robust to either quote style and to a trailing comment, e.g.
           # __version__ = '0.1.0rc1'  # bump on release
+          # Expects the template's unindented, unannotated
+          # `__version__ = "..."` form (not `__version__: str = "..."`,
+          # and not indented inside a class/function).
           pkg_version=$(grep -m1 -oP "^__version__\s*=\s*['\"]\K[^'\"]+" "$init" || true)
           if [ -z "$pkg_version" ]; then
             echo "::error::could not find __version__ in $init"
