@@ -19,6 +19,7 @@ jobs:
     outputs:
       package: ${{ steps.parse.outputs.package }}
       version: ${{ steps.parse.outputs.version }}
+      prerelease: ${{ steps.parse.outputs.prerelease }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -37,6 +38,14 @@ jobs:
           version="${BASH_REMATCH[2]}"
           echo "package=$name" >> "$GITHUB_OUTPUT"
           echo "version=$version" >> "$GITHUB_OUTPUT"
+          # PEP 440 pre-release segment (alpha "a", beta "b" or release
+          # candidate "rc"), e.g. "0.1.0rc1": a GitHub prerelease, not a
+          # full release.
+          if [[ "$version" =~ ^[0-9]+(\.[0-9]+)*(a|b|rc)[0-9]+$ ]]; then
+            echo "prerelease=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "prerelease=false" >> "$GITHUB_OUTPUT"
+          fi
       - name: Check the tag version matches the package version
         env:
           PACKAGE: ${{ steps.parse.outputs.package }}
@@ -49,7 +58,9 @@ jobs:
             echo "::error::no such package init file: $init"
             exit 1
           fi
-          pkg_version=$(grep -m1 -oP '(?<=^__version__ = ")[^"]+' "$init" || true)
+          # Robust to either quote style and to a trailing comment, e.g.
+          # __version__ = '0.1.0rc1'  # bump on release
+          pkg_version=$(grep -m1 -oP "^__version__\s*=\s*['\"]\K[^'\"]+" "$init" || true)
           if [ -z "$pkg_version" ]; then
             echo "::error::could not find __version__ in $init"
             exit 1
@@ -103,9 +114,20 @@ jobs:
           TAG: ${{ github.ref_name }}
           PACKAGE: ${{ needs.resolve.outputs.package }}
           VERSION: ${{ needs.resolve.outputs.version }}
+          PRERELEASE: ${{ needs.resolve.outputs.prerelease }}
         run: |
           set -euo pipefail
+          # --latest=false always: this is a monorepo of independently
+          # versioned packages, so GitHub's single repo-wide "Latest" marker
+          # must never be flipped to whichever package happened to release
+          # most recently -- that would misrepresent every other package's
+          # own latest release.
+          extra_args=(--latest=false)
+          if [[ "$PRERELEASE" == "true" ]]; then
+            extra_args+=(--prerelease)
+          fi
           gh release create "$TAG" dist/* \
             --verify-tag \
             --title "dfwb-torch-${PACKAGE} ${VERSION}" \
-            --notes "Release of dfwb-torch-${PACKAGE} ${VERSION}."
+            --notes "Release of dfwb-torch-${PACKAGE} ${VERSION}." \
+            "${extra_args[@]}"
