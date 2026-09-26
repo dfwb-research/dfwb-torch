@@ -76,6 +76,28 @@ jobs:
             exit 1
           fi
           echo "tag version matches package __version__: $pkg_version"
+      - name: Check the tag version matches CITATION.cff
+        env:
+          PACKAGE: ${{ steps.parse.outputs.package }}
+          TAG_VERSION: ${{ steps.parse.outputs.version }}
+        run: |
+          set -euo pipefail
+          cff="packages/$PACKAGE/CITATION.cff"
+          if [ ! -f "$cff" ]; then
+            echo "::error::no such CITATION.cff: $cff"
+            exit 1
+          fi
+          # Same quote-agnostic style as the __version__ check above.
+          cff_version=$(grep -m1 -oP "^version:\s*['\"]\K[^'\"]+" "$cff" || true)
+          if [ -z "$cff_version" ]; then
+            echo "::error::could not find version in $cff"
+            exit 1
+          fi
+          if [ "$cff_version" != "$TAG_VERSION" ]; then
+            echo "::error::tag version '$TAG_VERSION' does not match CITATION.cff version '$cff_version'"
+            exit 1
+          fi
+          echo "tag version matches CITATION.cff version: $cff_version"
 
   build:
     name: build
@@ -132,8 +154,9 @@ jobs:
           if [[ "$PRERELEASE" == "true" ]]; then
             extra_args+=(--prerelease)
           fi
+          changelog_url="https://github.com/dfwb-research/dfwb-torch/blob/${TAG}/packages/${PACKAGE}/CHANGELOG.md"
           gh release create "$TAG" dist/* \
             --verify-tag \
             --title "dfwb-torch-${PACKAGE} ${VERSION}" \
-            --notes "Release of dfwb-torch-${PACKAGE} ${VERSION}." \
+            --notes "Release of dfwb-torch-${PACKAGE} ${VERSION}. Changelog: ${changelog_url}" \
             "${extra_args[@]}"
