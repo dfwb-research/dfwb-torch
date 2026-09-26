@@ -98,6 +98,20 @@ def test_change_to_scripts_reports_all_packages(tmp_path: Path) -> None:
     assert json.loads(result.stdout) == ["pkg-a", "pkg-b"]
 
 
+def test_change_to_github_workflows_reports_all_packages(tmp_path: Path) -> None:
+    root = tmp_path / "repo"
+    base = _init_repo(root)
+
+    (root / ".github" / "workflows").mkdir(parents=True)
+    (root / ".github" / "workflows" / "ci.yml").write_text("name: ci\n")
+    _git(root, "add", "-A")
+    _git(root, "commit", "-q", "-m", "touch workflows")
+
+    result = _run(root, "--base", base)
+    assert result.returncode == 0, result.stderr
+    assert json.loads(result.stdout) == ["pkg-a", "pkg-b"]
+
+
 def test_change_to_root_pyproject_reports_all_packages(tmp_path: Path) -> None:
     root = tmp_path / "repo"
     base = _init_repo(root)
