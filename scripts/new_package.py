@@ -119,6 +119,8 @@ def main(argv: list[str] | None = None) -> int:
 
     for path in created:
         print(path)
+    print()
+    print("Next: run `uv lock` to add this new workspace member, and commit the updated uv.lock.")
     return 0
 
 

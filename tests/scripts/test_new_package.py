@@ -86,6 +86,15 @@ def test_render_prints_created_files(tmp_path: Path) -> None:
     assert "packages/my-thing/src/dfwb_torch_my_thing/modules.py" in printed
 
 
+def test_render_tells_the_contributor_to_run_uv_lock(tmp_path: Path) -> None:
+    """The new package is a workspace member `uv` does not yet know about;
+    the contributor must run `uv lock` (and commit the updated `uv.lock`)
+    before the new package can be synced or built."""
+    root = _make_root(tmp_path)
+    result = _render(root, "my-thing")
+    assert "uv lock" in result.stdout
+
+
 def test_rendered_pyproject_parses_and_has_entry_point(tmp_path: Path) -> None:
     root = _make_root(tmp_path)
     _render(root, "my-thing")
