@@ -36,10 +36,10 @@ def _check_truncate(truncate: float | None) -> None:
         raise ValueError(f"truncate must be None or >= 0; got {truncate!r}")
 
 
-def _check_non_negative(name: str, value: float) -> None:
-    """Raise `ValueError` unless ``value`` is non-negative."""
-    if value < 0:
-        raise ValueError(f"{name} must be >= 0; got {value!r}")
+def _check_positive(name: str, value: float) -> None:
+    """Raise `ValueError` unless ``value`` is strictly positive."""
+    if value <= 0:
+        raise ValueError(f"{name} must be > 0; got {value!r}")
 
 
 def _check_srm_conv2d_options(
@@ -80,10 +80,18 @@ _LUMA_WEIGHTS = (0.299, 0.587, 0.114)
 def tlu(x: torch.Tensor, threshold: float) -> torch.Tensor:
     """Truncated linear unit: clamp every element to ``[-threshold, threshold]``.
 
+    ``threshold`` is in whatever units ``x`` already is: an unscaled, raw
+    clamp bound. Contrast `dfwb_torch_srm.modules.TLU`, whose ``threshold``
+    is always in 0-255 residual units and divided by 255 internally when
+    its own ``input_scale="0-1"`` -- the two are not interchangeable without
+    accounting for that difference.
+
     Args:
         x: Input tensor of any shape.
-        threshold: The clamp bound; must be non-negative for the bounds to
-            be ordered, but this is not checked.
+        threshold: The clamp bound, in the same units as ``x``; must be
+            non-negative for the bounds to be ordered, but this is not
+            checked here (unlike `dfwb_torch_srm.modules.TLU`, which
+            validates its own ``threshold > 0`` eagerly at construction).
 
     Returns:
         A new tensor, ``x`` clamped to ``[-threshold, threshold]``. ``x`` is
@@ -200,12 +208,18 @@ def _srm_conv2d(
     Raises:
         See `srm_conv2d`.
     """
+    if not x.dtype.is_floating_point:
+        raise TypeError(
+            f"srm_conv2d needs a floating-point tensor; got {x.dtype} (call x.float() first)"
+        )
     _check_srm_conv2d_options(
         input_scale=input_scale, padding=padding, padding_mode=padding_mode, truncate=truncate
     )
     if x.ndim != 4:
         raise ValueError(f"srm_conv2d expects a [B, C, H, W] tensor; got shape {tuple(x.shape)}")
     _, _, height, width = x.shape
+    if height == 0 or width == 0:
+        raise ValueError(f"srm_conv2d needs H > 0 and W > 0; got H={height}, W={width}")
     if padding == "valid" and (height < _KERNEL_SIZE or width < _KERNEL_SIZE):
         raise ValueError(
             f"srm_conv2d(padding='valid') needs an image at least {_KERNEL_SIZE}x{_KERNEL_SIZE} "
@@ -290,11 +304,17 @@ def srm_conv2d(
         ``mode``; its dtype and device match ``x``.
 
     Raises:
+        TypeError: ``x`` is not a floating-point tensor (call ``x.float()``
+            first), or ``bank`` is a sequence containing a non-string name.
+        KeyError: ``bank`` (or a name inside it) is not a known bank/kernel
+            name in `dfwb_torch_srm.kernels.BANKS`/`KERNELS`. The message
+            suggests the closest known name.
         ValueError: ``mode="gray"`` and ``C != 3``; ``mode="per-channel"``
             and ``K != C``; an unrecognised ``mode``; ``input_scale``,
             ``padding`` or ``padding_mode`` not one of their allowed values;
-            ``truncate`` negative; or ``padding="valid"`` on an image
-            smaller than 5x5 (a 5x5 kernel does not fit with no padding).
+            ``truncate`` negative; ``H == 0`` or ``W == 0``; or
+            ``padding="valid"`` on an image smaller than 5x5 (a 5x5 kernel
+            does not fit with no padding).
 
     Example:
         >>> import torch

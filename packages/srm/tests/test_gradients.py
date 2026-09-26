@@ -1,9 +1,13 @@
 """Module construction and gradient tests for `SRMConv2d`: gradcheck
 (float64), buffer/parameter registration, the trainable zero-DC invariant,
-`out_channels` per mode, and a state-dict round trip. Device/dtype and
+`out_channels` per mode, a state-dict round trip, and that `forward` is
+stateless (no cache, no mutation) so it plays well with `inference_mode`,
+`torch.jit.trace` and plain buffer edits/loads. Device/dtype and
 torch.compile parity have their own files: `test_device_dtype.py` and
 `test_compile.py`.
 """
+
+import copy
 
 import pytest
 import torch
@@ -124,6 +128,7 @@ def test_srmconv2d_invalid_options_raise_at_construction(
     [
         ({"input_scale": "0-100"}, r"input_scale.*'0-1'.*'0-255'"),
         ({"threshold": -1.0}, r"threshold.*-1\.0"),
+        ({"threshold": 0.0}, r"threshold.*0\.0"),
     ],
 )
 def test_tlu_invalid_options_raise_at_construction(kwargs: dict[str, object], match: str) -> None:
@@ -179,6 +184,146 @@ def test_forward_rejects_input_with_wrong_channel_count(mode: str) -> None:
     layer = SRMConv2d(in_channels=3, bank=bank, mode=mode)
     x = torch.zeros(1, 5, 8, 8)
     with pytest.raises(ValueError, match=r"in_channels=3.*C=5"):
+        layer(x)
+
+
+@pytest.mark.parametrize(("mode", "bank"), [("gray", "srm30"), ("per-channel", "rgbn3")])
+def test_inference_mode_then_backward_wrt_input(mode: str, bank: str) -> None:
+    """`forward` must read no cached state from an earlier call: a call
+    inside `torch.inference_mode()` must not leave anything behind that
+    later poisons an ordinary, grad-tracked call. Regression: a per-call
+    weight cache built its tensor under whatever mode was active on the
+    *first* call and then reused it on every later call regardless of mode,
+    so a `gray`/`per-channel` layer warmed up under `inference_mode()`
+    raised `RuntimeError: Inference tensors cannot be saved for backward`
+    the first time it was then used in a normal backward pass."""
+    layer = SRMConv2d(in_channels=3, bank=bank, mode=mode, truncate=None)
+    with torch.inference_mode():
+        layer(torch.randn(1, 3, 8, 8))
+    x = torch.randn(1, 3, 8, 8, requires_grad=True)
+    y = layer(x)
+    y.sum().backward()
+    assert x.grad is not None
+
+
+def test_jit_trace_fresh_module() -> None:
+    """`torch.jit.trace` runs `forward` twice and checks the two graphs
+    match. Regression: a per-call weight cache made the first call build and
+    store a tensor and the second call reuse it, recording two different
+    graphs (`Graphs differed across invocations!`) for a module that had
+    never been called before tracing."""
+    layer = SRMConv2d(3, mode="gray")
+    x = torch.randn(2, 3, 16, 16)
+    traced = torch.jit.trace(layer, x)
+    assert torch.allclose(traced(x), layer(x))
+
+
+def test_forward_does_not_mutate_module_state() -> None:
+    """`forward` is a pure function of `self` and `x`: it must add no new
+    attribute and change no existing one. Regression: a per-call weight
+    cache was a plain dict attribute that `forward` mutated in place on
+    every new (dtype, device) it saw."""
+
+    def snapshot(value: object) -> object:
+        if isinstance(value, torch.Tensor):
+            return value.clone()
+        if isinstance(value, dict):
+            return {k: snapshot(v) for k, v in value.items()}
+        return copy.deepcopy(value)
+
+    def snapshots_equal(a: object, b: object) -> bool:
+        if isinstance(a, torch.Tensor):
+            return isinstance(b, torch.Tensor) and torch.equal(a, b)
+        if isinstance(a, dict):
+            return (
+                isinstance(b, dict)
+                and a.keys() == b.keys()
+                and all(snapshots_equal(a[k], b[k]) for k in a)
+            )
+        return bool(a == b)
+
+    layer = SRMConv2d(in_channels=3, bank="srm30", mode="sum")
+    before = {k: snapshot(v) for k, v in vars(layer).items()}
+    layer(torch.randn(1, 3, 8, 8))
+    after = vars(layer)
+
+    assert before.keys() == after.keys(), "forward must add or remove no attribute"
+    for key, before_value in before.items():
+        assert snapshots_equal(before_value, after[key]), f"forward changed {key!r}"
+
+
+def test_editing_fixed_weight_in_place_changes_the_output() -> None:
+    """The `weight` buffer is the sole source of truth for a fixed layer:
+    `forward` must read it fresh every call, not some other, separately
+    resolved value."""
+    layer = SRMConv2d(in_channels=1, bank="square3", mode="sum", truncate=None)
+    x = torch.randn(1, 1, 8, 8)
+    before = layer(x)
+    with torch.no_grad():
+        layer.weight.mul_(2)
+    after = layer(x)
+    assert not torch.equal(before, after)
+
+
+def test_load_state_dict_weight_changes_the_output() -> None:
+    """Loading a different `weight` via `load_state_dict` must change what
+    `forward` computes, the same as editing the buffer directly."""
+    layer = SRMConv2d(in_channels=1, bank="square3", mode="sum", truncate=None)
+    x = torch.randn(1, 1, 8, 8)
+    state = layer.state_dict()
+    state["weight"] = state["weight"] * 0
+    layer.load_state_dict(state)
+    assert torch.equal(layer(x), torch.zeros_like(layer(x)))
+
+
+def test_rc1_style_float32_checkpoint_loads() -> None:
+    """A fixed layer's `weight` buffer is float64 (see the class docstring),
+    but a checkpoint saved by the original 0.1.0rc1 (whose buffer was
+    float32) must still load: `load_state_dict` copies the source values
+    into the destination buffer, casting to the destination's own dtype."""
+    from dfwb_torch_srm.kernels import srm_kernels
+
+    layer = SRMConv2d(in_channels=3, bank="srm30", mode="sum")
+    assert layer.weight.dtype == torch.float64
+    rc1_weight = srm_kernels("srm30", dtype=torch.float32)  # rc1's construction dtype
+    layer.load_state_dict({"weight": rc1_weight})
+    assert layer.weight.dtype == torch.float64  # the buffer keeps its own dtype
+    layer(torch.randn(1, 3, 8, 8))  # does not raise
+
+
+@pytest.mark.parametrize("in_channels", [0, -1])
+def test_in_channels_must_be_at_least_one(in_channels: int) -> None:
+    with pytest.raises(ValueError, match=r"in_channels"):
+        SRMConv2d(in_channels=in_channels)
+
+
+def test_args_after_in_channels_are_keyword_only() -> None:
+    """Matches `srm_conv2d`'s own keyword-only style for every option after
+    the leading positional argument."""
+    with pytest.raises(TypeError):
+        SRMConv2d(3, "srm30")  # type: ignore[misc]
+
+
+def test_unknown_bank_raises_keyerror_at_construction() -> None:
+    with pytest.raises(KeyError):
+        SRMConv2d(bank="nope")
+
+
+def test_non_string_kernel_name_raises_typeerror_at_construction() -> None:
+    with pytest.raises(TypeError):
+        SRMConv2d(bank=[1, 2])  # type: ignore[list-item]
+
+
+@pytest.mark.parametrize("dtype", [torch.uint8, torch.int64])
+@pytest.mark.parametrize("trainable", [False, True])
+def test_forward_rejects_non_floating_input(dtype: torch.dtype, trainable: bool) -> None:
+    """Regression: a non-floating input previously either raised a
+    confusing internal error (fixed kernels, naming `srm_kernels`, not the
+    call the user actually made) or silently computed garbage in integer
+    arithmetic (trainable kernels, no error at all)."""
+    layer = SRMConv2d(in_channels=3, bank="srm30", mode="sum", trainable=trainable)
+    x = (torch.rand(1, 3, 8, 8) * 255).to(dtype)
+    with pytest.raises(TypeError, match=r"floating-point tensor.*x\.float\(\)"):
         layer(x)
 
 

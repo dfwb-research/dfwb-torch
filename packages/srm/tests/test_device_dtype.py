@@ -86,29 +86,28 @@ def test_device_dtype_follow_input(dtype: torch.dtype, atol: float) -> None:
 
 
 def test_weight_buffer_itself_is_cast_not_just_the_output() -> None:
-    """The module's own stored `weight` stays at its construction dtype
-    (float32, the default); only the value used inside `forward` is cast to
-    the input's dtype. This confirms the cast happens per call, not by
-    mutating the buffer in place."""
+    """The module's own stored `weight` stays at its own dtype -- float64
+    for fixed (`trainable=False`) kernels, always, regardless of
+    `torch.get_default_dtype()` (see the class docstring); only the value
+    used inside `forward` is cast to the input's dtype. This confirms the
+    cast happens per call, not by mutating the buffer in place."""
     layer = SRMConv2d(in_channels=1, bank="square3", mode="sum")
-    assert layer.weight.dtype == torch.float32
-    layer(torch.zeros(1, 1, 8, 8, dtype=torch.float64))
-    assert layer.weight.dtype == torch.float32  # unchanged by the float64 call
+    assert layer.weight.dtype == torch.float64
+    layer(torch.zeros(1, 1, 8, 8, dtype=torch.float32))
+    assert layer.weight.dtype == torch.float64  # unchanged by the float32 call
 
 
 def test_fixed_kernels_float64_forward_is_not_double_rounded_through_float32() -> None:
-    """Regression: a fixed (`trainable=False`) layer built at the default
-    (float32) dtype must not bake float32 rounding into a float64 forward
-    pass. The weight `forward` actually uses must be built fresh for the
-    input's dtype from the exact taps (as `srm_kernels(..., dtype=x.dtype)`
-    does), not `self.weight.to(dtype=...)`, which would only up-cast the
-    already float32-rounded buffer -- silently discarding precision a
-    float64 caller asked for.
+    """Regression: a fixed (`trainable=False`) layer's `weight` buffer is
+    built directly in float64 from `bank`'s exact taps at construction (see
+    the class docstring); `forward` must cast *that* buffer down for a
+    lower-dtype call, not round the taps through some other, less precise,
+    intermediate first.
 
     `"third-order-h"` is divided by 3 (see `kernels.py`), so several of its
     taps (e.g. 1/3) are not exactly representable in either float32 or
-    float64: rounding to float32 first measurably changes the result versus
-    rounding directly to float64.
+    float64: rounding to float32 first, then up to float64, measurably
+    changes the result versus rounding directly to float64.
     """
     generator = torch.Generator().manual_seed(0)
     x64 = torch.randn(1, 1, 8, 8, dtype=torch.float64, generator=generator)
@@ -119,10 +118,14 @@ def test_fixed_kernels_float64_forward_is_not_double_rounded_through_float32() -
     expected = srm_conv2d(x64, bank=("third-order-h",), mode="sum", truncate=None)
     assert torch.equal(y, expected)
 
-    # Sanity: prove the two really do differ, so the equality above is a
-    # meaningful check of float64 exactness, not a vacuous one.
+    # Sanity: prove the two really do differ, at the *same* output shape (so
+    # this is a genuine precision comparison, not an incidental shape
+    # mismatch) -- pad x64 the same way srm_conv2d's default
+    # padding="same"/padding_mode="reflect" does before convolving.
     double_rounded = srm_kernels(("third-order-h",), dtype=torch.float32).to(torch.float64)
-    buggy = F.conv2d(x64, double_rounded.unsqueeze(1))
+    padded = F.pad(x64, (2, 2, 2, 2), mode="reflect")
+    buggy = F.conv2d(padded, double_rounded.unsqueeze(1))
+    assert buggy.shape == expected.shape
     assert not torch.equal(expected, buggy)
 
 

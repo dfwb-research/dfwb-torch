@@ -75,11 +75,14 @@ mode="per-channel"                 C out   (needs K == C)
 
 ## Pitfalls
 
-- **Input range.** Truncation (`truncate`, the TLU threshold) is expressed in 0-255 residual
-  units, as in the SRM literature. If your images are scaled to `[0, 1]` (the default,
-  `input_scale="0-1"`), the effective threshold is `truncate / 255`, so the clamp means the
-  same thing either way. Pass `input_scale="0-255"` if you feed 0-255 images directly; mixing
-  the two up silently over- or under-truncates.
+- **Input range.** `srm_conv2d`/`SRMConv2d` need a floating-point tensor -- convert an integer
+  tensor (e.g. `uint8` images straight from `PIL`/a decoder) with `x.float()` first; an integer
+  or boolean tensor raises `TypeError` naming the dtype. Truncation (`truncate`, the TLU
+  threshold) is expressed in 0-255 residual units, as in the SRM literature. If your images are
+  scaled to `[0, 1]` (the default, `input_scale="0-1"`), the effective threshold is
+  `truncate / 255`, so the clamp means the same thing either way. Pass `input_scale="0-255"` if
+  you feed 0-255 images as floats directly (after `x.float()`); mixing the two up silently
+  over- or under-truncates.
 - **`mode="per-channel"` needs `K == C`.** It applies kernel `i` to channel `i`, so the bank's
   kernel count `K` must equal `in_channels`. A mismatch raises a `ValueError` naming both `K`
   and `C` at construction time, not later at the first forward pass.
