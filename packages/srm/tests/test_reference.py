@@ -240,11 +240,19 @@ _CONV_MODE_BANK = [
     ],
 )
 def test_matches_numpy_reference(mode: str, bank: str, padding: str, padding_mode: str) -> None:
+    # truncate=None: the default 0-255-unit threshold (3/255 ~= 0.0118) is
+    # tiny next to a standard-normal input's conv response, so with
+    # truncation left on, ~99% of a typical output saturates to the same
+    # clamp bound in both implementations -- comparing mostly checks that
+    # they clamp the same way, not that the underlying convolution matches.
+    # Disabling truncation exercises the actual per-element arithmetic.
     generator = torch.Generator().manual_seed(0)
     x = torch.randn(2, 3, 9, 7, dtype=torch.float64, generator=generator)
-    y_torch = srm_conv2d(x, bank=bank, mode=mode, padding=padding, padding_mode=padding_mode)
+    y_torch = srm_conv2d(
+        x, bank=bank, mode=mode, padding=padding, padding_mode=padding_mode, truncate=None
+    )
     y_numpy = srm_conv2d_reference(
-        x.numpy(), bank=bank, mode=mode, padding=padding, padding_mode=padding_mode
+        x.numpy(), bank=bank, mode=mode, padding=padding, padding_mode=padding_mode, truncate=None
     )
     assert torch.allclose(y_torch, torch.from_numpy(y_numpy), atol=1e-10)
 
@@ -254,8 +262,10 @@ def test_matches_numpy_reference_reflect_fallback_below_3() -> None:
     # implementations must do it the same way.
     generator = torch.Generator().manual_seed(1)
     x = torch.randn(1, 3, 2, 4, dtype=torch.float64, generator=generator)
-    y_torch = srm_conv2d(x, bank="square3", mode="sum", padding="same", padding_mode="reflect")
+    y_torch = srm_conv2d(
+        x, bank="square3", mode="sum", padding="same", padding_mode="reflect", truncate=None
+    )
     y_numpy = srm_conv2d_reference(
-        x.numpy(), bank="square3", mode="sum", padding="same", padding_mode="reflect"
+        x.numpy(), bank="square3", mode="sum", padding="same", padding_mode="reflect", truncate=None
     )
     assert torch.allclose(y_torch, torch.from_numpy(y_numpy), atol=1e-10)
