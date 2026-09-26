@@ -8,6 +8,9 @@ outright the way the other dtypes are.
 
 import pytest
 import torch
+import torch.nn.functional as F
+from dfwb_torch_srm.functional import srm_conv2d
+from dfwb_torch_srm.kernels import srm_kernels
 from dfwb_torch_srm.modules import TLU, SRMConv2d
 
 # Tolerances, and why: each case compares a dtype computed natively against
@@ -91,6 +94,36 @@ def test_weight_buffer_itself_is_cast_not_just_the_output() -> None:
     assert layer.weight.dtype == torch.float32
     layer(torch.zeros(1, 1, 8, 8, dtype=torch.float64))
     assert layer.weight.dtype == torch.float32  # unchanged by the float64 call
+
+
+def test_fixed_kernels_float64_forward_is_not_double_rounded_through_float32() -> None:
+    """Regression: a fixed (`trainable=False`) layer built at the default
+    (float32) dtype must not bake float32 rounding into a float64 forward
+    pass. The weight `forward` actually uses must be built fresh for the
+    input's dtype from the exact taps (as `srm_kernels(..., dtype=x.dtype)`
+    does), not `self.weight.to(dtype=...)`, which would only up-cast the
+    already float32-rounded buffer -- silently discarding precision a
+    float64 caller asked for.
+
+    `"third-order-h"` is divided by 3 (see `kernels.py`), so several of its
+    taps (e.g. 1/3) are not exactly representable in either float32 or
+    float64: rounding to float32 first measurably changes the result versus
+    rounding directly to float64.
+    """
+    generator = torch.Generator().manual_seed(0)
+    x64 = torch.randn(1, 1, 8, 8, dtype=torch.float64, generator=generator)
+
+    layer = SRMConv2d(in_channels=1, bank=("third-order-h",), mode="sum", truncate=None)
+    y = layer(x64)
+
+    expected = srm_conv2d(x64, bank=("third-order-h",), mode="sum", truncate=None)
+    assert torch.equal(y, expected)
+
+    # Sanity: prove the two really do differ, so the equality above is a
+    # meaningful check of float64 exactness, not a vacuous one.
+    double_rounded = srm_kernels(("third-order-h",), dtype=torch.float32).to(torch.float64)
+    buggy = F.conv2d(x64, double_rounded.unsqueeze(1))
+    assert not torch.equal(expected, buggy)
 
 
 @pytest.mark.gpu

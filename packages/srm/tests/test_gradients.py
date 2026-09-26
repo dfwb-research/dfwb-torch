@@ -166,6 +166,22 @@ def test_state_dict_round_trip(trainable: bool) -> None:
     assert torch.equal(dst(x), src(x))
 
 
+@pytest.mark.parametrize("mode", ["depthwise", "sum", "gray", "per-channel"])
+def test_forward_rejects_input_with_wrong_channel_count(mode: str) -> None:
+    """Every mode must reject an input whose channel count does not match
+    the declared `in_channels`. `gray` and `per-channel` already raised (via
+    the luminance and `K == C` checks respectively), but `depthwise` and
+    `sum` would otherwise silently compute an output whose channel count no
+    longer matches `out_channels`, since their weight only depends on the
+    *actual* input's channel count, not on the module's declared
+    `in_channels`."""
+    bank = "rgbn3" if mode == "per-channel" else "srm30"
+    layer = SRMConv2d(in_channels=3, bank=bank, mode=mode)
+    x = torch.zeros(1, 5, 8, 8)
+    with pytest.raises(ValueError, match=r"in_channels=3.*C=5"):
+        layer(x)
+
+
 def test_repr_includes_config() -> None:
     layer = SRMConv2d(in_channels=3, bank="rgbn3", mode="sum", trainable=True)
     text = repr(layer)

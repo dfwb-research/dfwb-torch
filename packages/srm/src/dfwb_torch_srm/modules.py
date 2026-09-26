@@ -17,7 +17,7 @@ from dfwb_torch_srm.functional import (
     _check_choice,
     _check_non_negative,
     _check_srm_conv2d_options,
-    srm_conv2d,
+    _srm_conv2d,
     tlu,
 )
 from dfwb_torch_srm.kernels import srm_kernels
@@ -197,6 +197,37 @@ class SRMConv2d(nn.Module):
             parametrize.register_parametrization(self, "weight", _ZeroMeanPerKernel())
         else:
             self.register_buffer("weight", kernels)
+        # Fixed (trainable=False) kernels only: per (dtype, device), the
+        # exact weight `forward` uses, built straight from `bank`'s exact
+        # float64 taps (see `_resolved_weight`). Not model state (never
+        # saved/loaded): a plain dict attribute, not a buffer, so it is
+        # rebuilt lazily and never persisted or moved by `.to()`/`.cuda()`.
+        self._weight_cache: dict[tuple[torch.dtype, torch.device], torch.Tensor] = {}
+
+    def _resolved_weight(self, x: torch.Tensor) -> torch.Tensor:
+        """The weight `forward` uses for ``x``'s dtype and device.
+
+        Trainable kernels: the parameter itself, cast to ``x``'s dtype and
+        device (there is no more "exact" value to rebuild from -- it is
+        whatever training has made it).
+
+        Fixed kernels: rebuilt from `bank` via `srm_kernels` for ``x``'s
+        exact dtype, cached per ``(dtype, device)``. This must not be
+        `self.weight` (built once at construction, in the default dtype)
+        simply cast to ``x``'s dtype: for a dtype other than the
+        construction one, that would round the taps twice (once to the
+        construction dtype, again on the cast) instead of once, directly, to
+        the dtype actually asked for -- silently discarding precision a
+        float64 caller asked for, for example.
+        """
+        if self.trainable:
+            return self.weight.to(dtype=x.dtype, device=x.device)
+        key = (x.dtype, x.device)
+        weight = self._weight_cache.get(key)
+        if weight is None:
+            weight = srm_kernels(self.bank, dtype=x.dtype, device=x.device)
+            self._weight_cache[key] = weight
+        return weight
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Apply the SRM/high-pass convolution, then truncate.
@@ -208,16 +239,29 @@ class SRMConv2d(nn.Module):
             The filtered, truncated output, shape
             ``[B, out_channels, H', W']`` (``H'``, ``W'`` per ``padding``, as
             in `srm_conv2d`); dtype and device match ``x``.
+
+        Raises:
+            ValueError: ``x``'s channel count does not match `in_channels`
+                (checked here since `mode="depthwise"`/``"sum"`` would
+                otherwise not notice: their weight only depends on ``x``'s
+                actual channel count, not on `in_channels`, so a mismatch
+                would silently give an output whose channel count no longer
+                matches `out_channels`, instead of raising).
         """
-        weight = self.weight.to(dtype=x.dtype, device=x.device)
-        return srm_conv2d(
+        if x.ndim == 4 and x.shape[1] != self.in_channels:
+            raise ValueError(
+                f"SRMConv2d(in_channels={self.in_channels}) expects input with "
+                f"C={self.in_channels}; got shape {tuple(x.shape)} with C={x.shape[1]}"
+            )
+        weight = self._resolved_weight(x)
+        return _srm_conv2d(
             x,
             mode=self.mode,
             truncate=self.truncate,
             input_scale=self.input_scale,
             padding=self.padding,
             padding_mode=self.padding_mode,
-            _weight=weight,
+            weight=weight,
         )
 
     def extra_repr(self) -> str:

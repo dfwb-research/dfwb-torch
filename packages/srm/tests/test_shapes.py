@@ -8,6 +8,8 @@ input-scale invariance for truncation, TLU clamping, the mode-specific
 and that `srm_conv2d` never mutates its input.
 """
 
+import inspect
+
 import pytest
 import torch
 from dfwb_torch_srm.functional import srm_conv2d, tlu
@@ -144,3 +146,12 @@ def test_padding_valid_on_too_small_image_raises_value_error() -> None:
     x = torch.zeros(1, 3, 4, 4)
     with pytest.raises(ValueError, match=r"padding='valid'.*H=4.*W=4"):
         srm_conv2d(x, bank="square3", mode="sum", padding="valid")
+
+
+def test_weight_override_is_not_on_the_public_signature() -> None:
+    """`SRMConv2d.forward` shares its implementation with `srm_conv2d` via a
+    private helper that takes a pre-resolved kernel tensor; that hook must
+    never leak onto the public `srm_conv2d` signature."""
+    params = inspect.signature(srm_conv2d).parameters
+    assert "_weight" not in params
+    assert "weight" not in params
