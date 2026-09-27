@@ -36,10 +36,10 @@ def _check_truncate(truncate: float | None) -> None:
         raise ValueError(f"truncate must be None or >= 0; got {truncate!r}")
 
 
-def _check_non_negative(name: str, value: float) -> None:
-    """Raise `ValueError` unless ``value`` is non-negative."""
-    if value < 0:
-        raise ValueError(f"{name} must be >= 0; got {value!r}")
+def _check_positive(name: str, value: float) -> None:
+    """Raise `ValueError` unless ``value`` is strictly positive."""
+    if value <= 0:
+        raise ValueError(f"{name} must be > 0; got {value!r}")
 
 
 def _check_srm_conv2d_options(
@@ -80,10 +80,18 @@ _LUMA_WEIGHTS = (0.299, 0.587, 0.114)
 def tlu(x: torch.Tensor, threshold: float) -> torch.Tensor:
     """Truncated linear unit: clamp every element to ``[-threshold, threshold]``.
 
+    ``threshold`` is in whatever units ``x`` already is: an unscaled, raw
+    clamp bound. Contrast `dfwb_torch_srm.modules.TLU`, whose ``threshold``
+    is always in 0-255 residual units and divided by 255 internally when
+    its own ``input_scale="0-1"`` -- the two are not interchangeable without
+    accounting for that difference.
+
     Args:
         x: Input tensor of any shape.
-        threshold: The clamp bound; must be non-negative for the bounds to
-            be ordered, but this is not checked.
+        threshold: The clamp bound, in the same units as ``x``; must be
+            non-negative for the bounds to be ordered, but this is not
+            checked here (unlike `dfwb_torch_srm.modules.TLU`, which
+            validates its own ``threshold > 0`` eagerly at construction).
 
     Returns:
         A new tensor, ``x`` clamped to ``[-threshold, threshold]``. ``x`` is
@@ -159,6 +167,84 @@ def _mode_weight(kernels: torch.Tensor, mode: str, channels: int) -> tuple[torch
     )
 
 
+def _srm_conv2d(
+    x: torch.Tensor,
+    *,
+    bank: str | Sequence[str] = "srm30",
+    mode: Literal["depthwise", "sum", "gray", "per-channel"] = "depthwise",
+    truncate: float | None = 3.0,
+    input_scale: Literal["0-1", "0-255"] = "0-1",
+    padding: Literal["same", "valid"] = "same",
+    padding_mode: Literal["reflect", "zeros", "replicate"] = "reflect",
+    weight: torch.Tensor | None = None,
+) -> torch.Tensor:
+    """Shared implementation behind `srm_conv2d` and `SRMConv2d.forward`.
+
+    Identical to `srm_conv2d`, except for ``weight``: not part of the
+    public API. `srm_conv2d` never exposes it; it exists so
+    `dfwb_torch_srm.modules.SRMConv2d.forward` can share this exact
+    function without also exposing a weight-override hook on the public
+    `srm_conv2d` signature.
+
+    Args:
+        x: See `srm_conv2d`.
+        bank: See `srm_conv2d`. Ignored when ``weight`` is given.
+        mode: See `srm_conv2d`.
+        truncate: See `srm_conv2d`.
+        input_scale: See `srm_conv2d`.
+        padding: See `srm_conv2d`.
+        padding_mode: See `srm_conv2d`.
+        weight: A ``[K, 5, 5]`` kernel tensor to use in place of resolving
+            ``bank`` via `srm_kernels`. `SRMConv2d.forward` passes its
+            current (fixed or trainable) weight through here, already
+            resolved for its dtype and device, so its forward pass shares
+            this exact function; ``bank`` is ignored when this is given. It
+            is cast to ``x``'s dtype and device like the resolved bank
+            would be.
+
+    Returns:
+        See `srm_conv2d`.
+
+    Raises:
+        See `srm_conv2d`.
+    """
+    if not x.dtype.is_floating_point:
+        raise TypeError(
+            f"srm_conv2d needs a floating-point tensor; got {x.dtype} (call x.float() first)"
+        )
+    _check_srm_conv2d_options(
+        input_scale=input_scale, padding=padding, padding_mode=padding_mode, truncate=truncate
+    )
+    if x.ndim != 4:
+        raise ValueError(f"srm_conv2d expects a [B, C, H, W] tensor; got shape {tuple(x.shape)}")
+    _, _, height, width = x.shape
+    if height == 0 or width == 0:
+        raise ValueError(f"srm_conv2d needs H > 0 and W > 0; got H={height}, W={width}")
+    if padding == "valid" and (height < _KERNEL_SIZE or width < _KERNEL_SIZE):
+        raise ValueError(
+            f"srm_conv2d(padding='valid') needs an image at least {_KERNEL_SIZE}x{_KERNEL_SIZE} "
+            f"(the kernel size), since there is no padding to fit a smaller one; "
+            f"got H={height}, W={width}"
+        )
+
+    if weight is not None:
+        kernels = weight.to(dtype=x.dtype, device=x.device)  # [K, 5, 5]
+    else:
+        kernels = srm_kernels(bank, dtype=x.dtype, device=x.device)  # [K, 5, 5]
+
+    plane = _luminance(x) if mode == "gray" else x
+    weight_, groups = _mode_weight(kernels, mode, plane.shape[1])
+
+    if padding == "same":
+        plane = _pad_same(plane, padding_mode, height, width)
+    y = F.conv2d(plane, weight_, groups=groups)
+
+    if truncate is not None:
+        threshold = truncate if input_scale == "0-255" else truncate / 255.0
+        y = tlu(y, threshold)
+    return y
+
+
 def srm_conv2d(
     x: torch.Tensor,
     *,
@@ -168,7 +254,6 @@ def srm_conv2d(
     input_scale: Literal["0-1", "0-255"] = "0-1",
     padding: Literal["same", "valid"] = "same",
     padding_mode: Literal["reflect", "zeros", "replicate"] = "reflect",
-    _weight: torch.Tensor | None = None,
 ) -> torch.Tensor:
     """Convolve a batched image with an SRM/high-pass kernel bank, then truncate.
 
@@ -213,24 +298,23 @@ def srm_conv2d(
             ``"valid"`` (no padding; ``H, W`` shrink by 4).
         padding_mode: ``"reflect"``, ``"zeros"`` or ``"replicate"``, used
             only when ``padding="same"``.
-        _weight: Module-internal only, not part of the public API: a
-            ``[K, 5, 5]`` kernel tensor to use in place of resolving
-            ``bank`` via `srm_kernels`. `dfwb_torch_srm.modules.SRMConv2d`
-            passes its current (fixed or trainable) weight through here so
-            its forward pass shares this exact function; ``bank`` is
-            ignored when this is given. It is cast to ``x``'s dtype and
-            device like the resolved bank would be.
 
     Returns:
         The filtered, truncated output. Its channel count depends on
         ``mode``; its dtype and device match ``x``.
 
     Raises:
+        TypeError: ``x`` is not a floating-point tensor (call ``x.float()``
+            first), or ``bank`` is a sequence containing a non-string name.
+        KeyError: ``bank`` (or a name inside it) is not a known bank/kernel
+            name in `dfwb_torch_srm.kernels.BANKS`/`KERNELS`. The message
+            suggests the closest known name.
         ValueError: ``mode="gray"`` and ``C != 3``; ``mode="per-channel"``
             and ``K != C``; an unrecognised ``mode``; ``input_scale``,
             ``padding`` or ``padding_mode`` not one of their allowed values;
-            ``truncate`` negative; or ``padding="valid"`` on an image
-            smaller than 5x5 (a 5x5 kernel does not fit with no padding).
+            ``truncate`` negative; ``H == 0`` or ``W == 0``; or
+            ``padding="valid"`` on an image smaller than 5x5 (a 5x5 kernel
+            does not fit with no padding).
 
     Example:
         >>> import torch
@@ -240,32 +324,12 @@ def srm_conv2d(
         >>> srm_conv2d(x, bank="square3", mode="sum").abs().max().item()
         0.0
     """
-    _check_srm_conv2d_options(
-        input_scale=input_scale, padding=padding, padding_mode=padding_mode, truncate=truncate
+    return _srm_conv2d(
+        x,
+        bank=bank,
+        mode=mode,
+        truncate=truncate,
+        input_scale=input_scale,
+        padding=padding,
+        padding_mode=padding_mode,
     )
-    if x.ndim != 4:
-        raise ValueError(f"srm_conv2d expects a [B, C, H, W] tensor; got shape {tuple(x.shape)}")
-    _, _, height, width = x.shape
-    if padding == "valid" and (height < _KERNEL_SIZE or width < _KERNEL_SIZE):
-        raise ValueError(
-            f"srm_conv2d(padding='valid') needs an image at least {_KERNEL_SIZE}x{_KERNEL_SIZE} "
-            f"(the kernel size), since there is no padding to fit a smaller one; "
-            f"got H={height}, W={width}"
-        )
-
-    if _weight is not None:
-        kernels = _weight.to(dtype=x.dtype, device=x.device)  # [K, 5, 5]
-    else:
-        kernels = srm_kernels(bank, dtype=x.dtype, device=x.device)  # [K, 5, 5]
-
-    plane = _luminance(x) if mode == "gray" else x
-    weight, groups = _mode_weight(kernels, mode, plane.shape[1])
-
-    if padding == "same":
-        plane = _pad_same(plane, padding_mode, height, width)
-    y = F.conv2d(plane, weight, groups=groups)
-
-    if truncate is not None:
-        threshold = truncate if input_scale == "0-255" else truncate / 255.0
-        y = tlu(y, threshold)
-    return y

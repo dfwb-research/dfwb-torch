@@ -3,8 +3,8 @@
 
 Usage: changed_packages.py --base REF [--all]
 
-A change to template/, scripts/, the root pyproject.toml or uv.lock means
-every package under packages/ is reported touched.
+A change to template/, scripts/, .github/workflows/, the root pyproject.toml
+or uv.lock means every package under packages/ is reported touched.
 """
 
 import argparse
@@ -14,7 +14,7 @@ import sys
 from pathlib import Path
 
 _GLOBAL_TRIGGER_FILES = {"pyproject.toml", "uv.lock"}
-_GLOBAL_TRIGGER_PREFIXES = ("template/", "scripts/")
+_GLOBAL_TRIGGER_PREFIXES = ("template/", "scripts/", ".github/workflows/")
 
 
 def _list_all_packages(root: Path) -> list[str]:

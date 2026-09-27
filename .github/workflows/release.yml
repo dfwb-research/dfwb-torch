@@ -19,6 +19,7 @@ jobs:
     outputs:
       package: ${{ steps.parse.outputs.package }}
       version: ${{ steps.parse.outputs.version }}
+      prerelease: ${{ steps.parse.outputs.prerelease }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -37,6 +38,17 @@ jobs:
           version="${BASH_REMATCH[2]}"
           echo "package=$name" >> "$GITHUB_OUTPUT"
           echo "version=$version" >> "$GITHUB_OUTPUT"
+          # PEP 440 pre-release (alpha "aN", beta "bN", release candidate
+          # "rcN") or developmental release (".devN", on its own or
+          # combined with a pre-release segment, e.g. "0.2.0rc1.dev2"):
+          # both are pre-releases (PEP 440), so tag a GitHub prerelease, not
+          # a full release. A post-release on its own ("1.2.3.post1") is
+          # not a pre-release and stays final.
+          if [[ "$version" =~ (a|b|rc)[0-9]+ ]] || [[ "$version" =~ \.dev[0-9]+ ]]; then
+            echo "prerelease=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "prerelease=false" >> "$GITHUB_OUTPUT"
+          fi
       - name: Check the tag version matches the package version
         env:
           PACKAGE: ${{ steps.parse.outputs.package }}
@@ -49,7 +61,12 @@ jobs:
             echo "::error::no such package init file: $init"
             exit 1
           fi
-          pkg_version=$(grep -m1 -oP '(?<=^__version__ = ")[^"]+' "$init" || true)
+          # Robust to either quote style and to a trailing comment, e.g.
+          # __version__ = '0.1.0rc1'  # bump on release
+          # Expects the template's unindented, unannotated
+          # `__version__ = "..."` form (not `__version__: str = "..."`,
+          # and not indented inside a class/function).
+          pkg_version=$(grep -m1 -oP "^__version__\s*=\s*['\"]\K[^'\"]+" "$init" || true)
           if [ -z "$pkg_version" ]; then
             echo "::error::could not find __version__ in $init"
             exit 1
@@ -59,6 +76,28 @@ jobs:
             exit 1
           fi
           echo "tag version matches package __version__: $pkg_version"
+      - name: Check the tag version matches CITATION.cff
+        env:
+          PACKAGE: ${{ steps.parse.outputs.package }}
+          TAG_VERSION: ${{ steps.parse.outputs.version }}
+        run: |
+          set -euo pipefail
+          cff="packages/$PACKAGE/CITATION.cff"
+          if [ ! -f "$cff" ]; then
+            echo "::error::no such CITATION.cff: $cff"
+            exit 1
+          fi
+          # Same quote-agnostic style as the __version__ check above.
+          cff_version=$(grep -m1 -oP "^version:\s*['\"]\K[^'\"]+" "$cff" || true)
+          if [ -z "$cff_version" ]; then
+            echo "::error::could not find version in $cff"
+            exit 1
+          fi
+          if [ "$cff_version" != "$TAG_VERSION" ]; then
+            echo "::error::tag version '$TAG_VERSION' does not match CITATION.cff version '$cff_version'"
+            exit 1
+          fi
+          echo "tag version matches CITATION.cff version: $cff_version"
 
   build:
     name: build
@@ -103,9 +142,21 @@ jobs:
           TAG: ${{ github.ref_name }}
           PACKAGE: ${{ needs.resolve.outputs.package }}
           VERSION: ${{ needs.resolve.outputs.version }}
+          PRERELEASE: ${{ needs.resolve.outputs.prerelease }}
         run: |
           set -euo pipefail
+          # --latest=false always: this is a monorepo of independently
+          # versioned packages, so GitHub's single repo-wide "Latest" marker
+          # must never be flipped to whichever package happened to release
+          # most recently -- that would misrepresent every other package's
+          # own latest release.
+          extra_args=(--latest=false)
+          if [[ "$PRERELEASE" == "true" ]]; then
+            extra_args+=(--prerelease)
+          fi
+          changelog_url="https://github.com/dfwb-research/dfwb-torch/blob/${TAG}/packages/${PACKAGE}/CHANGELOG.md"
           gh release create "$TAG" dist/* \
             --verify-tag \
             --title "dfwb-torch-${PACKAGE} ${VERSION}" \
-            --notes "Release of dfwb-torch-${PACKAGE} ${VERSION}."
+            --notes "Release of dfwb-torch-${PACKAGE} ${VERSION}. Changelog: ${changelog_url}" \
+            "${extra_args[@]}"

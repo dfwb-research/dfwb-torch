@@ -8,6 +8,8 @@ input-scale invariance for truncation, TLU clamping, the mode-specific
 and that `srm_conv2d` never mutates its input.
 """
 
+import inspect
+
 import pytest
 import torch
 from dfwb_torch_srm.functional import srm_conv2d, tlu
@@ -144,3 +146,41 @@ def test_padding_valid_on_too_small_image_raises_value_error() -> None:
     x = torch.zeros(1, 3, 4, 4)
     with pytest.raises(ValueError, match=r"padding='valid'.*H=4.*W=4"):
         srm_conv2d(x, bank="square3", mode="sum", padding="valid")
+
+
+def test_weight_override_is_not_on_the_public_signature() -> None:
+    """`SRMConv2d.forward` shares its implementation with `srm_conv2d` via a
+    private helper that takes a pre-resolved kernel tensor; that hook must
+    never leak onto the public `srm_conv2d` signature."""
+    params = inspect.signature(srm_conv2d).parameters
+    assert "_weight" not in params
+    assert "weight" not in params
+
+
+@pytest.mark.parametrize("shape", [(1, 3, 0, 8), (1, 3, 8, 0)])
+def test_empty_spatial_dimension_raises_value_error(shape: tuple[int, int, int, int]) -> None:
+    """An empty spatial dimension (H=0 or W=0) must raise the package's own
+    `ValueError`, like the too-small `padding="valid"` case, rather than a
+    confusing `RuntimeError` from deep inside `F.conv2d`/`F.pad`."""
+    x = torch.zeros(shape)
+    with pytest.raises(ValueError, match=r"H > 0 and W > 0"):
+        srm_conv2d(x, bank="square3", mode="sum", padding="same")
+
+
+@pytest.mark.parametrize("dtype", [torch.uint8, torch.int64])
+def test_srm_conv2d_rejects_non_floating_input(dtype: torch.dtype) -> None:
+    x = (torch.rand(1, 3, 8, 8) * 255).to(dtype)
+    with pytest.raises(TypeError, match=r"floating-point tensor.*x\.float\(\)"):
+        srm_conv2d(x, bank="square3", mode="sum")
+
+
+def test_srm_conv2d_unknown_bank_raises_keyerror() -> None:
+    x = torch.zeros(1, 3, 8, 8)
+    with pytest.raises(KeyError):
+        srm_conv2d(x, bank="nope")
+
+
+def test_srm_conv2d_non_string_kernel_name_raises_typeerror() -> None:
+    x = torch.zeros(1, 3, 8, 8)
+    with pytest.raises(TypeError):
+        srm_conv2d(x, bank=[1, 2])  # type: ignore[list-item]

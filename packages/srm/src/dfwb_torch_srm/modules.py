@@ -15,9 +15,9 @@ from torch.nn.utils import parametrize
 from dfwb_torch_srm.functional import (
     _INPUT_SCALES,
     _check_choice,
-    _check_non_negative,
+    _check_positive,
     _check_srm_conv2d_options,
-    srm_conv2d,
+    _srm_conv2d,
     tlu,
 )
 from dfwb_torch_srm.kernels import srm_kernels
@@ -106,16 +106,31 @@ class SRMConv2d(nn.Module):
 
     Fixed kernels (``trainable=False``, the default) are a non-trainable
     `register_buffer`, so they never appear in `.parameters()` and are never
-    touched by an optimiser. With ``trainable=True``, `weight` is an
-    `nn.Parameter` re-centred to zero mean per kernel on every access by a
+    touched by an optimiser. The buffer is built once at construction,
+    **in float64**, from `bank`'s exact taps -- regardless of
+    ``torch.get_default_dtype()`` -- so `forward` always casts down from
+    the exact values on every call, never re-rounding through some other,
+    lower, intermediate dtype first. With ``trainable=True``, `weight` is
+    instead an `nn.Parameter`, built at the default dtype (unchanged by the
+    above: a trained parameter has no more-exact source to rebuild from),
+    re-centred to zero mean per kernel on every access by a
     `torch.nn.utils.parametrize` parametrisation
     (``w - w.mean(dim=(-2, -1), keepdim=True)``), so gradient steps can
     never turn a residual kernel into a low-pass filter: its DC gain stays
     exactly 0.
 
-    `forward` casts the current weight to the input's dtype and device (so
-    the layer follows the input, with no silent upcast), then calls
-    `srm_conv2d`.
+    `forward` is a pure function of `weight` and its input: on every call,
+    it casts the *current* `weight` to the input's dtype and device (so the
+    layer follows the input, with no silent upcast, and no state is cached
+    across calls), then calls `srm_conv2d`. `weight` is the sole source of
+    truth: editing it in place, or loading a different one with
+    `load_state_dict` (including one saved by an older release whose buffer
+    was a different dtype -- the copy casts to this buffer's own dtype),
+    changes what `forward` computes from the very next call. Being stateless
+    this way is what makes the module work under `torch.inference_mode`,
+    `torch.jit.trace`, `torch.compile` and `torch.export`: nothing is
+    mutated on a "warm-up" call that a later, differently-traced or
+    differently-moded call could then see.
 
     Attributes:
         out_channels: The number of output channels, fixed at construction
@@ -147,6 +162,7 @@ class SRMConv2d(nn.Module):
     def __init__(
         self,
         in_channels: int = 3,
+        *,
         bank: str | Sequence[str] = "srm30",
         mode: Literal["depthwise", "sum", "gray", "per-channel"] = "depthwise",
         trainable: bool = False,
@@ -158,12 +174,14 @@ class SRMConv2d(nn.Module):
         """Build the layer.
 
         Args:
-            in_channels: The number of input channels.
+            in_channels: The number of input channels. Must be >= 1.
             bank: A bank name from `dfwb_torch_srm.kernels.BANKS`, or a
                 sequence of kernel names, giving ``K`` kernels.
             mode: One of ``"depthwise"``, ``"sum"``, ``"gray"``, ``"per-channel"``.
             trainable: If `True`, `weight` is a learnable, zero-DC-constrained
-                `nn.Parameter`; if `False` (the default), a fixed buffer.
+                `nn.Parameter`, built at the default dtype; if `False` (the
+                default), a fixed buffer, built in float64 regardless of the
+                default dtype (see the class docstring).
             truncate: The TLU threshold in 0-255 units, or `None` to disable
                 truncation.
             input_scale: ``"0-1"`` or ``"0-255"``, the scale the input is in.
@@ -172,16 +190,30 @@ class SRMConv2d(nn.Module):
                 only when ``padding="same"``.
 
         Raises:
-            ValueError: ``mode="per-channel"`` and ``K != in_channels``;
-                ``mode="gray"`` and ``in_channels != 3``; an unrecognised
-                ``mode``; or ``input_scale``, ``padding``, ``padding_mode``
-                or ``truncate`` not one of their allowed values.
+            ValueError: ``in_channels < 1``; ``mode="per-channel"`` and
+                ``K != in_channels``; ``mode="gray"`` and
+                ``in_channels != 3``; an unrecognised ``mode``; or
+                ``input_scale``, ``padding``, ``padding_mode`` or
+                ``truncate`` not one of their allowed values.
+            KeyError: ``bank`` (or a name inside it) is not a known
+                bank/kernel name in
+                `dfwb_torch_srm.kernels.BANKS`/`KERNELS`.
+            TypeError: ``bank`` is a sequence containing a non-string name.
         """
         super().__init__()
+        if in_channels < 1:
+            raise ValueError(f"SRMConv2d needs in_channels >= 1; got {in_channels!r}")
         _check_srm_conv2d_options(
             input_scale=input_scale, padding=padding, padding_mode=padding_mode, truncate=truncate
         )
-        kernels = srm_kernels(bank)  # default dtype/device; forward casts to the input's
+        # Fixed kernels are built in float64, straight from bank's exact
+        # taps, regardless of torch.get_default_dtype(): forward always
+        # casts *down* from this exact source on every call, so it never
+        # re-rounds through some other, lower, dtype first (see the class
+        # docstring). A trainable parameter has no such "exact" source to
+        # protect -- it is whatever training makes it -- so it keeps using
+        # the default dtype, as before.
+        kernels = srm_kernels(bank) if trainable else srm_kernels(bank, dtype=torch.float64)
         self.in_channels = in_channels
         self.bank = bank
         self.mode = mode
@@ -201,6 +233,12 @@ class SRMConv2d(nn.Module):
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Apply the SRM/high-pass convolution, then truncate.
 
+        A pure function of `weight` (see the class docstring) and ``x``:
+        mutates no module state, so a call under `torch.inference_mode`, a
+        `torch.jit.trace`/`torch.export` capture, or any other special
+        context leaves nothing behind that could affect a later, ordinary
+        call.
+
         Args:
             x: Input, shape ``[B, in_channels, H, W]``.
 
@@ -208,16 +246,32 @@ class SRMConv2d(nn.Module):
             The filtered, truncated output, shape
             ``[B, out_channels, H', W']`` (``H'``, ``W'`` per ``padding``, as
             in `srm_conv2d`); dtype and device match ``x``.
+
+        Raises:
+            TypeError: ``x`` is not a floating-point tensor (call
+                ``x.float()`` first).
+            ValueError: ``x``'s channel count does not match `in_channels`
+                (checked here since `mode="depthwise"`/``"sum"`` would
+                otherwise not notice: their weight only depends on ``x``'s
+                actual channel count, not on `in_channels`, so a mismatch
+                would silently give an output whose channel count no longer
+                matches `out_channels`, instead of raising); or ``x`` has an
+                empty spatial dimension (``H == 0`` or ``W == 0``).
         """
+        if x.ndim == 4 and x.shape[1] != self.in_channels:
+            raise ValueError(
+                f"SRMConv2d(in_channels={self.in_channels}) expects input with "
+                f"C={self.in_channels}; got shape {tuple(x.shape)} with C={x.shape[1]}"
+            )
         weight = self.weight.to(dtype=x.dtype, device=x.device)
-        return srm_conv2d(
+        return _srm_conv2d(
             x,
             mode=self.mode,
             truncate=self.truncate,
             input_scale=self.input_scale,
             padding=self.padding,
             padding_mode=self.padding_mode,
-            _weight=weight,
+            weight=weight,
         )
 
     def extra_repr(self) -> str:
@@ -233,10 +287,13 @@ class SRMConv2d(nn.Module):
 class TLU(nn.Module):
     """Truncated linear unit, as an `nn.Module`.
 
-    Clamps its input to ``[-t, t]``, where ``t`` is ``threshold`` (in 0-255
-    residual units, as in the SRM literature) or ``threshold / 255`` when
-    ``input_scale="0-1"``. A thin wrapper around
-    `dfwb_torch_srm.functional.tlu`; holds no learnable state.
+    Clamps its input to ``[-t, t]``, where ``t`` is ``threshold`` (always in
+    0-255 residual units, as in the SRM literature, regardless of
+    ``input_scale``) or ``threshold / 255`` when ``input_scale="0-1"``. A
+    thin wrapper around `dfwb_torch_srm.functional.tlu`, whose own
+    ``threshold`` is instead in whatever units its input already is, with
+    no such scaling (or validation) -- see its docstring; holds no
+    learnable state.
 
     Example:
         >>> import torch
@@ -252,8 +309,9 @@ class TLU(nn.Module):
         """Build the layer.
 
         Args:
-            threshold: The clamp bound, in 0-255 residual units. Must be
-                non-negative.
+            threshold: The clamp bound, in 0-255 residual units (not the
+                units of the eventual input -- see `dfwb_torch_srm.functional.tlu`
+                for the raw, unscaled primitive). Must be strictly positive.
             input_scale: ``"0-1"`` (the default) or ``"0-255"``, the scale
                 the input is in. ``"0-1"`` uses an effective threshold of
                 ``threshold / 255``, so the same clamp applies whether the
@@ -261,11 +319,11 @@ class TLU(nn.Module):
 
         Raises:
             ValueError: ``input_scale`` is not ``"0-1"`` or ``"0-255"``, or
-                ``threshold`` is negative.
+                ``threshold`` is not strictly positive.
         """
         super().__init__()
         _check_choice("input_scale", input_scale, _INPUT_SCALES)
-        _check_non_negative("threshold", threshold)
+        _check_positive("threshold", threshold)
         self.threshold = threshold
         self.input_scale = input_scale
 
