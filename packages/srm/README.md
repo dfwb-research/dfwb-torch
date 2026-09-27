@@ -14,6 +14,19 @@ through the `dfwb.plugins` entry point when both are installed.
 
 ## Install
 
+Install the torch build you need **first**, then this package. PyPI's own default `torch`
+wheel is the CUDA build (it pulls in the `nvidia-*` packages and `triton`, several gigabytes),
+so installing `torch` as an ordinary dependency of this package -- rather than pinning it
+yourself beforehand -- gets you that CUDA build even on a CPU-only machine:
+
+```bash
+# CPU
+pip install torch --index-url https://download.pytorch.org/whl/cpu
+
+# CUDA: use pytorch.org's selector (https://pytorch.org/get-started/locally/) for the
+# command matching your CUDA version
+```
+
 `dfwb-torch-srm` is not on PyPI yet. Install it straight from its git URL:
 
 ```bash

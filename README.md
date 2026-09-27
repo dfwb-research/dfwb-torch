@@ -26,7 +26,11 @@ uv sync
 
 `uv sync` installs every package here, with the CPU build of PyTorch the lockfile pins. Each
 package also installs on its own, from the clone (`pip install ./packages/srm`) or straight from
-its git URL, and has its own quickstart in its `README.md`.
+its git URL, and has its own quickstart in its `README.md` -- but outside this workspace, pip
+resolves PyPI's own default `torch` wheel, which is the CUDA build, even on a CPU-only machine.
+Install the torch build you need first: CPU, `pip install torch --index-url
+https://download.pytorch.org/whl/cpu`; CUDA, [pytorch.org's
+selector](https://pytorch.org/get-started/locally/). Then install the package.
 
 ## Quickstart
 
