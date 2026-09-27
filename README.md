@@ -89,9 +89,11 @@ Each package is tagged and released independently, one tag-day PR at a time:
 4. Replace the "not on PyPI yet" install text in `packages/<name>/README.md` -- PyPI renders
    that file as the project description, which cannot change without a new release -- and in
    this file's `## Packages` table.
-5. Merge the PR, then tag the merge commit `<name>-v<x.y.z>` (e.g. `srm-v0.1.0`) and push the
+5. Run `uv lock --check`; if the version change left `uv.lock`'s own pin for the package stale,
+   run `uv lock` and commit the updated `uv.lock` too.
+6. Merge the PR, then tag the merge commit `<name>-v<x.y.z>` (e.g. `srm-v0.1.0`) and push the
    tag.
-6. `release.yml` takes it from there: it checks the tag's version against `__version__` and
+7. `release.yml` takes it from there: it checks the tag's version against `__version__` and
    `CITATION.cff`'s `version` (refusing a mismatch), builds and publishes to PyPI through
    trusted publishing, and creates a GitHub release linking to the package's changelog -- marked
    a prerelease for an alpha/beta/rc/dev version, and never flipping this repository's "Latest
