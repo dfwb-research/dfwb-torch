@@ -11,6 +11,7 @@ torch = { index = "pytorch-cpu" }
 
 [dependency-groups]
 dev = ["pre-commit", "ruff"]
+scripts = ["pytest>=8"]
 
 [tool.ruff]
 line-length = 100

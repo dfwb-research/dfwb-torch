@@ -1,0 +1,47 @@
+"""Contract test for dfwb_torch_$module's dfwb.plugins registration.
+
+Uses a recording mock instead of the real framework, so this test runs
+without dfwb installed (dfwb_plugin.py itself must not import torch or dfwb
+at module level).
+"""
+
+import importlib
+from dataclasses import dataclass, field
+
+
+@dataclass
+class _RecordingLayers:
+    added: list[tuple[str, dict[str, object]]] = field(default_factory=list)
+
+    def add(self, key: str, **kwargs: object) -> None:
+        self.added.append((key, kwargs))
+
+
+@dataclass
+class _RecordingApi:
+    layers: _RecordingLayers = field(default_factory=_RecordingLayers)
+
+
+def test_register_adds_the_expected_layer() -> None:
+    from dfwb_torch_$module.dfwb_plugin import register
+
+    api = _RecordingApi()
+    register(api)
+
+    assert len(api.layers.added) == 1
+    key, kwargs = api.layers.added[0]
+    assert key == "$name"
+    assert kwargs["target"] == "dfwb_torch_$module.modules:$Module"
+    assert kwargs["requires"] == ("torch",)
+
+
+def test_register_target_is_importable() -> None:
+    from dfwb_torch_$module.dfwb_plugin import register
+
+    api = _RecordingApi()
+    register(api)
+
+    _key, kwargs = api.layers.added[0]
+    module_path, _, attr = str(kwargs["target"]).partition(":")
+    target_module = importlib.import_module(module_path)
+    assert hasattr(target_module, attr)

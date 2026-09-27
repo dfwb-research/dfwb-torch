@@ -1,0 +1,14 @@
+"""torch.compile / torch.jit.script parity tests for $name."""
+
+import torch
+from dfwb_torch_$module.modules import $Module
+
+
+def test_module_is_scriptable_placeholder() -> None:
+    """Placeholder so a freshly rendered package has a passing test.
+
+    Replace with real torch.compile / torch.jit.script parity checks for
+    $name once forward() does something non-trivial.
+    """
+    module = $Module()
+    assert isinstance(module, torch.nn.Module)

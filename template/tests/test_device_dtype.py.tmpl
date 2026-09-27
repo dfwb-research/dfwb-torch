@@ -1,0 +1,14 @@
+"""Device/dtype tests for $name: cpu always; cuda/mps if available; every float dtype."""
+
+import torch
+from dfwb_torch_$module.modules import $Module
+
+
+def test_dtype_follows_input() -> None:
+    """Placeholder so a freshly rendered package has a passing test.
+
+    Replace with the real device/dtype matrix for $name.
+    """
+    module = $Module()
+    x = torch.zeros(2, dtype=torch.float64)
+    assert module(x).dtype == torch.float64

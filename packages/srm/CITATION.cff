@@ -1,0 +1,55 @@
+cff-version: 1.2.0
+message: "If dfwb-torch-srm helps your work, please consider citing it, and the original papers below."
+type: software
+title: "dfwb-torch-srm"
+version: "0.1.0rc1"
+abstract: >-
+  Fixed, optionally learnable, high-pass SRM / residual filter banks for PyTorch: the standard
+  noise-residual front end in steganalysis and image forensics, as named, cited and tested
+  kernel banks (Fridrich & Kodovsky 2012; Zhou et al. 2018).
+authors:
+  - family-names: Collins
+    given-names: Luke
+    email: luke.collins@research.deakin.edu.au
+    affiliation: Deakin University
+    orcid: "https://orcid.org/0009-0002-7771-1081"
+license: MIT
+repository-code: "https://github.com/dfwb-research/dfwb-torch/tree/main/packages/srm"
+url: "https://dfwb-research.github.io/dfwb-torch/srm/"
+keywords:
+  - pytorch
+  - forensics
+  - deepfake
+  - steganalysis
+  - srm
+references:
+  - type: article
+    title: "Rich Models for Steganalysis of Digital Images"
+    authors:
+      - family-names: Fridrich
+        given-names: Jessica
+      - family-names: Kodovsky
+        given-names: Jan
+    journal: "IEEE Transactions on Information Forensics and Security"
+    year: 2012
+    volume: 7
+    issue: 3
+    start: "868"
+    end: "882"
+    doi: "10.1109/TIFS.2012.2190402"
+  - type: conference-paper
+    title: "Learning Rich Features for Image Manipulation Detection"
+    authors:
+      - family-names: Zhou
+        given-names: Peng
+      - family-names: Han
+        given-names: Xintong
+      - family-names: Morariu
+        given-names: "Vlad I."
+      - family-names: Davis
+        given-names: "Larry S."
+    collection-title: "Proceedings of the IEEE Conference on Computer Vision and Pattern Recognition (CVPR)"
+    year: 2018
+    start: "1053"
+    end: "1061"
+    doi: "10.1109/CVPR.2018.00116"

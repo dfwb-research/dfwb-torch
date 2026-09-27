@@ -1,0 +1,71 @@
+# dfwb-torch-$name
+
+$summary
+
+Standalone PyTorch package: it installs, imports and runs with nothing but
+`torch`. Part of [dfwb-torch](https://github.com/dfwb-research/dfwb-torch),
+and optionally self-registers with
+[Deepfake Workbench](https://github.com/dfwb-research/deepfake-workbench)
+through the `dfwb.plugins` entry point when both are installed.
+
+## Install
+
+`dfwb-torch-$name` is not on PyPI yet. Install it straight from its git URL:
+
+```bash
+pip install "dfwb-torch-$name @ git+https://github.com/dfwb-research/dfwb-torch#subdirectory=packages/$name"
+```
+
+or, from a clone of [dfwb-torch](https://github.com/dfwb-research/dfwb-torch),
+`pip install ./packages/$name`.
+
+## Quickstart
+
+```python
+import torch
+from dfwb_torch_$module import $Module
+
+module = $Module()
+x = torch.zeros(1, 3, 8, 8)
+y = module(x)
+```
+
+## API
+
+| Name | What |
+|---|---|
+| `$Module` | Placeholder module; replace with the real API for $name. |
+
+## The DFWB repositories
+
+Three repositories make up [DFWB Research](https://github.com/dfwb-research); the organisation
+profile also lists the datasets in preparation.
+
+| Repository | What it holds |
+|---|---|
+| [deepfake-workbench](https://github.com/dfwb-research/deepfake-workbench) | The framework: verified dataset inventories, face preprocessing, training, scoring any detector, and evaluation with uncertainty. One `dfwb` command. |
+| [dfwb-protocols](https://github.com/dfwb-research/dfwb-protocols) | Versioned train, validation and test splits for public deepfake datasets, CC BY 4.0. Installed next to the framework, it adds its protocols and evaluation suites. |
+| [dfwb-torch](https://github.com/dfwb-research/dfwb-torch) | Small, standalone PyTorch utilities for media forensics, starting with `dfwb-torch-srm`. Installed next to the framework, a package registers its layers as plugins. |
+
+## Licence
+
+MIT. See [`LICENSE`](https://github.com/dfwb-research/dfwb-torch/blob/main/packages/$name/LICENSE).
+
+## Cite this work
+
+<!-- Cite the method's source paper here: authors, year, venue, and a DOI or URL. -->
+
+## Maintainer
+
+[Luke Collins](https://github.com/lukegcollins), Deakin University
+([ORCID 0009-0002-7771-1081](https://orcid.org/0009-0002-7771-1081)).
+
+Contributions are welcome; see the organisation's
+[contributing guidelines](https://github.com/dfwb-research/.github/blob/main/CONTRIBUTING.md).
+
+## Acknowledgments
+
+This work was supported by a [DUPR Scholarship](https://www.deakin.edu.au) and partially
+funded by [Dynamis Group](https://dynamisgroup.com.au). We also gratefully acknowledge the
+authors and contributors of the associated modules, packages, datasets, and detectors
+utilised in this research; we make no claims of ownership regarding these external resources.

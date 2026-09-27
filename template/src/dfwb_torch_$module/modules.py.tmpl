@@ -1,0 +1,31 @@
+"""nn.Module wrappers for dfwb_torch_$module."""
+
+import torch
+from torch import nn
+
+from dfwb_torch_$module.functional import identity
+
+
+class $Module(nn.Module):
+    """Placeholder module for $name.
+
+    Replace this with the real module(s) for: $summary. Device and dtype
+    follow the input; this module holds no learnable state.
+
+    Example:
+        >>> import torch
+        >>> m = $Module()
+        >>> m(torch.arange(3)).tolist()
+        [0, 1, 2]
+    """
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """Apply the placeholder op.
+
+        Args:
+            x: Input tensor of any shape.
+
+        Returns:
+            The same tensor, unchanged.
+        """
+        return identity(x)
