@@ -108,7 +108,7 @@ profile also lists the datasets in preparation.
 | Repository | What it holds |
 |---|---|
 | [deepfake-workbench](https://github.com/dfwb-research/deepfake-workbench) | The framework: verified dataset inventories, face preprocessing, training, scoring any detector, and evaluation with uncertainty. One `dfwb` command. |
-| [dfwb-protocols](https://github.com/dfwb-research/dfwb-protocols) | Versioned train, validation and test splits for public deepfake datasets, CC BY 4.0. Installed next to the framework, it adds its protocols and evaluation suites. |
+| dfwb-protocols (in preparation, not public yet) | Versioned train, validation and test splits for public deepfake datasets, CC BY 4.0. Installed next to the framework, it adds its protocols and evaluation suites. |
 | [dfwb-torch](https://github.com/dfwb-research/dfwb-torch) | Small, standalone PyTorch utilities for media forensics, starting with `dfwb-torch-srm`. Installed next to the framework, a package registers its layers as plugins. |
 
 ## Licence
